@@ -22,7 +22,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test extensions/usage-limit-resume/index.test.ts extensions/usage-limit-resume/parse.test.ts extensions/usage-limit-resume/providers/*.test.ts",
+    "test": "node --test extensions/usage-limit-resume/*.test.ts extensions/usage-limit-resume/providers/*.test.ts",
     "typecheck": "tsc -p ."
   },
   "peerDependencies": {

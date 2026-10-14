@@ -60,7 +60,9 @@ as plans when flagged `apiKey: true` (a pay-as-you-go key has no reset to wait f
 > Gemini CLI OAuth on 2026-06-18, so most accounts will fall through to CodexBar. Copilot: it is unconfirmed that
 > Pi's stored credential is the GitHub OAuth token the endpoint expects.
 
-To add a provider, give it a family in `config.json`:
+To add a provider, give it a family in `~/.pi/agent/usage-limit-resume.json` (or the file named by
+`PI_USAGE_LIMIT_CONFIG`). This file lives outside the package, so updating or reinstalling the package never
+overwrites it. The packaged `config.json` is read first and is replaced on every update.
 
 ```json
 {
@@ -72,7 +74,9 @@ To add a provider, give it a family in `config.json`:
 
 `piProviders` are Pi provider ids, `modelPattern` (optional regex on the model id) narrows the match,
 `codexbarId` is the id given to CodexBar (defaults to the family id), `apiKey: true` marks an API-key plan.
-A family with the same id as a default replaces it. Old failover keys (`tiers`, `order`, `excludeModels`) are ignored.
+A family with the same id as a default replaces it. Family ids must be lowercase letters, digits and dashes;
+an invalid family (bad id, no `piProviders`, invalid regex) is ignored, and a file that is not valid JSON is skipped
+so it can never stop Pi from starting. Old failover keys (`tiers`, `order`, `excludeModels`) are ignored.
 
 ## Environment switches
 
@@ -82,6 +86,7 @@ A family with the same id as a default replaces it. Old failover keys (`tiers`, 
 | `PI_USAGE_LIMIT_CLAUDE_CLI=0` | Never run the `claude` CLI. |
 | `CODEX_HOME` | Where the Codex CLI keeps `auth.json` (default `~/.codex`). |
 | `PI_USAGE_LIMIT_WAIT_IN_RPC=1` | Let an RPC child hold its turn like the main session. |
+| `PI_USAGE_LIMIT_CONFIG` | User config file (default `~/.pi/agent/usage-limit-resume.json`). |
 | `PI_USAGE_LIMIT_STATE_DIR` | Shared state directory (default `~/.pi/agent/usage-limit-resume-state`). |
 
 ## What it will not do

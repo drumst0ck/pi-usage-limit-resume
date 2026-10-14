@@ -1,5 +1,6 @@
 // Which usage family a Pi model belongs to. A family is one plan with its own reset times; its id is also the
 // `--provider` id passed to CodexBar. The plugin only tracks and waits: it never picks or switches models.
+import { readFileSync } from "node:fs";
 import type { Family } from "./state.ts";
 
 export interface FamilyConfig {
@@ -29,9 +30,35 @@ export const DEFAULT_CONFIG: Config = {
  },
 };
 
-/** User config adds to the defaults; a family with the same id replaces the default one. */
+/** Family ids become state file names, so only lowercase letters, digits and dashes are accepted. */
+const FAMILY_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+function validFamily(id: string, f: any): f is FamilyConfig {
+ if (!FAMILY_ID.test(id) || !f || !Array.isArray(f.piProviders) || !f.piProviders.length) return false;
+ if (!f.piProviders.every((p: unknown) => typeof p === "string" && p)) return false;
+ if (f.modelPattern !== undefined) {
+  if (typeof f.modelPattern !== "string") return false;
+  try { new RegExp(f.modelPattern, "i"); } catch { return false; }
+ }
+ return f.codexbarId === undefined || typeof f.codexbarId === "string";
+}
+
+/** User config adds to the defaults; a family with the same id replaces the default one. Invalid families are dropped. */
 export function mergeConfig(base: Config, data: Partial<Config> = {}): Config {
- return { families: { ...base.families, ...data.families } };
+ const extra = Object.entries(data?.families ?? {}).filter(([id, f]) => validFamily(id, f));
+ return { families: { ...base.families, ...Object.fromEntries(extra) } };
+}
+
+/**
+ * Defaults, then each JSON file in order (later wins). A missing or broken file is skipped: a typo in a user
+ * config must never stop Pi from starting.
+ */
+export function loadConfig(paths: string[]): Config {
+ let config = DEFAULT_CONFIG;
+ for (const path of paths) {
+  try { config = mergeConfig(config, JSON.parse(readFileSync(path, "utf8"))); }
+  catch { /* Missing or invalid: keep what we have. */ }
+ }
+ return config;
 }
 
 /**

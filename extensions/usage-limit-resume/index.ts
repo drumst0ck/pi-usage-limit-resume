@@ -1,14 +1,13 @@
 // Saves every provider's reset times and, when an exhausted plan resets, continues the task it was doing.
 // It never chooses or switches models: that belongs to another plugin.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_CLI_TIMEOUT_MS, claudeCliWindows, runClaudeCli } from "./claude-cli.ts";
 import { CODEXBAR_TIMEOUT_MS, codexbarReset, codexbarWindows, runCodexbar } from "./codexbar.ts";
 import { fetchCodexWindows, readCodexCliAuth } from "./codex-usage.ts";
-import { DEFAULT_CONFIG, familyResolver, mergeConfig, usesPlan, type Config } from "./families.ts";
+import { familyResolver, loadConfig, usesPlan, type Config } from "./families.ts";
 import { headerWindows, isUsageLimitError, parseResetHeaders, parseResetTime, resetFromWindows } from "./parse.ts";
 import { nativeSources as defaultNativeSources } from "./providers/index.ts";
 import type { NativeSource } from "./providers/types.ts";
@@ -29,11 +28,6 @@ const PROBE_MS = [10, 20, 30, 60].map(m => m * 60_000);
 const RESUME_PROMPT = "Provider capacity is available. Continue exactly where you stopped. " +
  "Reconcile any odd/tasks/<feature>.md document or open todo list with the next unfinished task. Do not redo completed work.";
 const lastAssistant = (messages: any[]): any => [...messages].reverse().find(m => m?.role === "assistant");
-function loadConfig(): Config {
- try {
-  return mergeConfig(DEFAULT_CONFIG, JSON.parse(readFileSync(fileURLToPath(new URL("./config.json", import.meta.url)), "utf8")));
- } catch (e: any) { if (e.code === "ENOENT") return DEFAULT_CONFIG; throw e; }
-}
 export interface Options {
  env?: NodeJS.ProcessEnv; argv?: string[]; config?: Config; store?: SharedState; fetch?: typeof fetch;
  claudeCli?: () => Promise<string | undefined>; nativeSources?: Record<Family, NativeSource>; codexbar?: (id: string) => Promise<string | undefined>;
@@ -41,8 +35,12 @@ export interface Options {
 
 export default function (pi: ExtensionAPI, options: Options = {}) {
  const env = options.env ?? process.env;
- const config = options.config ?? loadConfig();
  const agentHome = env.PI_CODING_AGENT_DIR?.replace(/^~(?=\/|$)/, env.HOME ?? homedir()) ?? join(env.HOME ?? homedir(), ".pi", "agent");
+ // The packaged config.json is replaced on every package update; the user's own file lives outside the package.
+ const config = options.config ?? loadConfig([
+  fileURLToPath(new URL("./config.json", import.meta.url)),
+  env.PI_USAGE_LIMIT_CONFIG ?? join(agentHome, "usage-limit-resume.json"),
+ ]);
  const store = options.store ?? new SharedState(env.PI_USAGE_LIMIT_STATE_DIR ?? join(agentHome, "usage-limit-resume-state"));
  const useClaudeCli = env.PI_USAGE_LIMIT_CLAUDE_CLI !== "0";
  const useCodexbar = env.PI_USAGE_LIMIT_CODEXBAR !== "0";
