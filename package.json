@@ -1,0 +1,21 @@
+{
+  "name": "pi-usage-limit-resume",
+  "version": "0.1.0",
+  "description": "Pi extension: saves when each provider's usage window resets (5h, weekly, monthly) and continues your task when an exhausted limit resets.",
+  "type": "module",
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "usage-limit", "rate-limit", "codexbar"],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "files": [
+    "extensions/",
+    "!extensions/**/*.test.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test extensions/usage-limit-resume/index.test.ts extensions/usage-limit-resume/parse.test.ts extensions/usage-limit-resume/providers/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.2.0"
+  }
+}
