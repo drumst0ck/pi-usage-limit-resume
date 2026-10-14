@@ -55,7 +55,8 @@ as plans when flagged `apiKey: true` (a pay-as-you-go key has no reset to wait f
 | `copilot` | `github-copilot` | Pi's stored credential |
 | `antigravity` | `google-antigravity` | CodexBar only |
 
-> **Not verified live:** every source except Claude's headers and Codex's `auth.json` endpoint follows CodexBar's
+> **Verified live (2026-10-14):** Claude (`/usage` CLI and CodexBar), Codex (`wham/usage` endpoint and CodexBar); the four agree on
+> percentages and reset times. **Not verified live:** every other source follows CodexBar's
 > source code and docs and is tested with fixtures, not against the real APIs. Gemini: Google ended consumer-tier
 > Gemini CLI OAuth on 2026-06-18, so most accounts will fall through to CodexBar. Copilot: it is unconfirmed that
 > Pi's stored credential is the GitHub OAuth token the endpoint expects.

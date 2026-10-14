@@ -37,5 +37,13 @@
   },
   "engines": {
     "node": ">=22.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drumst0ck/pi-usage-limit-resume.git"
+  },
+  "homepage": "https://github.com/drumst0ck/pi-usage-limit-resume#readme",
+  "bugs": {
+    "url": "https://github.com/drumst0ck/pi-usage-limit-resume/issues"
   }
 }
