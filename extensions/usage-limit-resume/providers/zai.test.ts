@@ -118,7 +118,7 @@ test("source: never sends the bearer to http or mismatched canonical hosts", asy
 		{ Z_AI_API_HOST: "http://api.z.ai" },
 		{ Z_AI_API_HOST: "open.bigmodel.cn" }, // canonical CN host cannot override the global region
 		{ Z_AI_REGION: "mars" },
-	]) {
+	] as Record<string, string>[]) {
 		const t = ctx({ key: KEY, env });
 		assert.equal(await source(t.ctx), undefined, JSON.stringify(env));
 		assert.equal(t.calls.length, 0, JSON.stringify(env));

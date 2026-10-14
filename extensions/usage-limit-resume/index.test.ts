@@ -312,7 +312,7 @@ test('a normal message saves the resets of the provider in use without delaying 
  const h = harness(t, { refresh: true, codexbar: (f: string) => { calls.push(f); return Promise.resolve(bar({ usedPercent: 48, resetsAt: iso(Date.now() + 3600_000) }, { usedPercent: 37, resetsAt: iso(Date.now() + 86400_000) })); } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
  assert.deepEqual(calls, ['claude']);
- const w = h.store.windows('claude'); assert.equal(w.fiveHour.usedPercent, 48); assert.equal(w.weekly.usedPercent, 37); assert.ok(w.weekly.resetsAt > w.fiveHour.resetsAt);
+ const w = h.store.windows('claude'); assert.equal(w.fiveHour!.usedPercent, 48); assert.equal(w.weekly!.usedPercent, 37); assert.ok(w.weekly!.resetsAt > w.fiveHour!.resetsAt);
 });
 test('a hung CodexBar never holds the message', async t => {
  const h = harness(t, { refresh: true, codexbar: () => new Promise<string>(() => {}) });
@@ -338,16 +338,16 @@ test('every response saves the windows its headers carry, no external app needed
  const h = harness(t); const n = Date.now();
  await h.handlers.after_provider_response({ status: 200, headers: { 'anthropic-ratelimit-unified-5h-utilization': '0.48', 'anthropic-ratelimit-unified-5h-reset': String(sec(n) + 3600),
   'anthropic-ratelimit-unified-7d-utilization': '0.37', 'anthropic-ratelimit-unified-7d-reset': String(sec(n) + 86400) } }, h.ctx);
- const w = h.store.windows('claude'); assert.equal(w.fiveHour.usedPercent, 48); assert.equal(w.weekly.usedPercent, 37);
+ const w = h.store.windows('claude'); assert.equal(w.fiveHour!.usedPercent, 48); assert.equal(w.weekly!.usedPercent, 37);
 });
 test('header saves are throttled, but an exhausted window is saved at once', async t => {
  const h = harness(t); const n = Date.now();
  const anth = (five: number) => ({ 'anthropic-ratelimit-unified-5h-utilization': String(five), 'anthropic-ratelimit-unified-5h-reset': String(sec(n) + 3600), 'anthropic-ratelimit-unified-7d-utilization': '0.1', 'anthropic-ratelimit-unified-7d-reset': String(sec(n) + 86400) });
  await h.handlers.after_provider_response({ status: 200, headers: anth(0.2) }, h.ctx);
  await h.handlers.after_provider_response({ status: 200, headers: anth(0.3) }, h.ctx);
- assert.equal(h.store.windows('claude').fiveHour.usedPercent, 20);
+ assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 20);
  await h.handlers.after_provider_response({ status: 200, headers: anth(1) }, h.ctx);
- assert.equal(h.store.windows('claude').fiveHour.usedPercent, 100);
+ assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 100);
 });
 test('/limit-resume status shows both resets of every provider in use', async t => {
  const h = harness(t); h.store.setWindows('claude', { fiveHour: { usedPercent: 48, resetsAt: Date.now() + 3600_000 }, weekly: { usedPercent: 37, resetsAt: Date.now() + 86400_000 } });
@@ -380,7 +380,7 @@ test('a failing or throwing native source falls through to CodexBar, never to an
   codexbar: async (f: string) => f === 'kimi' ? bar({ usedPercent: 33, resetsAt: iso(Date.now() + 3600_000) }) : undefined,
   nativeSources: { kimi: async () => { throw new Error('boom'); } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.equal(h.store.windows('kimi').fiveHour.usedPercent, 33); assert.equal(codexAuthTouched, 0);
+ assert.equal(h.store.windows('kimi').fiveHour!.usedPercent, 33); assert.equal(codexAuthTouched, 0);
 });
 test('a native source that finds nothing does not borrow Codex\'s windows', async t => {
  const home = harness(t); const { home: codexDir } = codexHome(home, cliAuth); let fetched = 0;
@@ -414,13 +414,13 @@ test('Codex windows come from the usage endpoint with Pi\'s own credential, Code
  const h = harness(t, { refresh: true, current: codex, tokens: { 'openai-codex': token }, codexbar: async () => { bars++; return undefined; },
   fetch: async (u: string, i: any) => { calls.push([u, i]); return { ok: true, json: async () => wham(100, r) }; } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.equal(h.store.windows('codex').fiveHour.usedPercent, 100); assert.equal(bars, 0);
+ assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 100); assert.equal(bars, 0);
  assert.match(calls[0][0], /chatgpt\.com\/backend-api\/wham\/usage/); assert.equal(calls[0][1].headers['chatgpt-account-id'], 'acct_1');
 });
 test('without a usable Codex credential the refresh falls through to CodexBar, then to nothing', async t => {
  const h = harness(t, { refresh: true, current: codex, tokens: { openai: 'opaque' }, fetch: async () => { throw new Error('no'); },
   codexbar: async (f: string) => f === 'codex' ? bar({ usedPercent: 77, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('codex').fiveHour.usedPercent, 77);
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 77);
  const h2 = harness(t, { refresh: true, current: codex }); await h2.handlers.before_agent_start({}, h2.ctx); await settle();
  assert.equal(h2.store.windows('codex').fiveHour, undefined); assert.ok(h2.store.windows('codex').checkedAt);
 });
@@ -430,7 +430,7 @@ test('Codex CLI login (auth.json) feeds the usage endpoint like CodexBar does, r
  const h = harness(t, { refresh: true, current: codex, env: { CODEX_HOME: home }, fetch: async (u: string, i: any) => { calls.push([u, i]); return { ok: true, json: async () => wham(100, r) }; } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
  assert.equal(calls[0][1].headers.Authorization, 'Bearer cli-access'); assert.equal(calls[0][1].headers['chatgpt-account-id'], 'acct_cli');
- assert.equal(h.store.windows('codex').fiveHour.usedPercent, 100); assert.equal(readFileSync(file, 'utf8'), before); assert.equal(statSync(file).mtimeMs, mtime);
+ assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 100); assert.equal(readFileSync(file, 'utf8'), before); assert.equal(statSync(file).mtimeMs, mtime);
 });
 test('auth.json readable by group or others is refused, never used', async t => {
  const calls: any[] = []; const base = harness(t); const { home } = codexHome(base, cliAuth, 0o644);
@@ -449,7 +449,7 @@ test('an expired CLI token (401) falls through to CodexBar without renewing anyt
  const h = harness(t, { refresh: true, current: codex, env: { CODEX_HOME: home }, fetch: async (u: string) => { calls.push(u); return { ok: false, status: 401 }; },
   codexbar: async (f: string) => f === 'codex' ? bar({ usedPercent: 61, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.deepEqual(calls.filter(u => !/wham\/usage/.test(u)), []); assert.equal(h.store.windows('codex').fiveHour.usedPercent, 61); assert.equal(readFileSync(file, 'utf8'), before);
+ assert.deepEqual(calls.filter(u => !/wham\/usage/.test(u)), []); assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 61); assert.equal(readFileSync(file, 'utf8'), before);
 });
 test('the first Codex limit ever, with nothing saved, asks the usage endpoint for the reset', async t => {
  const r = sec(Date.now()) + 4 * 3600; const base = harness(t); const { home } = codexHome(base, cliAuth);
@@ -463,11 +463,11 @@ test('the first Codex limit ever, with nothing saved, asks the usage endpoint fo
 const cliText = `Current session: 56% used · resets Oct 14 at 6:50pm (Europe/Madrid)\nCurrent week (all models): 38% used · resets Oct 20 at 6pm (Europe/Madrid)`;
 test('Claude windows fall back to the claude CLI when headers have not provided them, before CodexBar', async t => {
  let bars = 0; const h = harness(t, { refresh: true, claudeCli: async () => cliText, codexbar: async () => { bars++; return undefined; } });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour.usedPercent, 56); assert.equal(bars, 0);
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 56); assert.equal(bars, 0);
 });
 test('claude CLI missing or failing falls through to CodexBar', async t => {
  const h = harness(t, { refresh: true, claudeCli: async () => { throw new Error('ENOENT'); }, codexbar: async (f: string) => f === 'claude' ? bar({ usedPercent: 44, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour.usedPercent, 44);
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 44);
 });
 test('the claude CLI is refreshed more rarely than the 5 minute cycle, since each run is a process', async t => {
  let n = 0; const h = harness(t, { refresh: true, claudeCli: async () => { n++; return cliText; } });

@@ -16,7 +16,7 @@ import { modelRef, SharedState, type Family, type Windows } from "./state.ts";
 
 const withTimeout = <T,>(p: Promise<T> | undefined, fallback: T, ms: number): Promise<T> => new Promise(resolve => {
  const timer = setTimeout(() => resolve(fallback), ms);
- Promise.resolve(p).then(v => { clearTimeout(timer); resolve(v); }, () => { clearTimeout(timer); resolve(fallback); });
+ (p ?? Promise.resolve(fallback)).then(v => { clearTimeout(timer); resolve(v); }, () => { clearTimeout(timer); resolve(fallback); });
 });
 const REFRESH_MS = 5 * 60_000;
 const CLAUDE_CLI_REFRESH_MS = 15 * 60_000;
@@ -272,5 +272,4 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  });
  const resetSession = (ctx: any) => { stop(ctx); pendingError = undefined; limitHeaders = undefined; attempts = 0; forceRetry = false; };
  pi.on("session_shutdown", async (_event: any, ctx: any) => { resetSession(ctx); });
- pi.on("session_switch", async (_event: any, ctx: any) => { resetSession(ctx); });
 }

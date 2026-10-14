@@ -3,9 +3,18 @@
   "version": "0.1.0",
   "description": "Pi extension: saves when each provider's usage window resets (5h, weekly, monthly) and continues your task when an exhausted limit resets.",
   "type": "module",
-  "keywords": ["pi-package", "pi", "pi-coding-agent", "usage-limit", "rate-limit", "codexbar"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "usage-limit",
+    "rate-limit",
+    "codexbar"
+  ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "files": [
     "extensions/",
@@ -13,9 +22,15 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test extensions/usage-limit-resume/index.test.ts extensions/usage-limit-resume/parse.test.ts extensions/usage-limit-resume/providers/*.test.ts"
+    "test": "node --test extensions/usage-limit-resume/index.test.ts extensions/usage-limit-resume/parse.test.ts extensions/usage-limit-resume/providers/*.test.ts",
+    "typecheck": "tsc -p ."
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.2.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.2.0",
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
   }
 }

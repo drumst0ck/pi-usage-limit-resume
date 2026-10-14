@@ -97,7 +97,7 @@ test('reset text with "Mon D at H:MMpm (Zone)" is understood',()=>{
 
 test('claude /usage text becomes 5h and weekly windows',()=>{
  assert.deepEqual(claudeCliWindows(cliText,NOW.getTime()),{fiveHour:{usedPercent:56,resetsAt:Date.parse('2026-10-14T16:50:00Z')},weekly:{usedPercent:38,resetsAt:Date.parse('2026-10-20T16:00:00Z')}});
- assert.deepEqual(claudeCliWindows('Current week (Opus): 90% used · resets Oct 20 at 6pm (Europe/Madrid)\nCurrent week (all models): 38% used · resets Oct 20 at 6pm (Europe/Madrid)',NOW.getTime()).weekly.usedPercent,38);
+ assert.deepEqual(claudeCliWindows('Current week (Opus): 90% used · resets Oct 20 at 6pm (Europe/Madrid)\nCurrent week (all models): 38% used · resets Oct 20 at 6pm (Europe/Madrid)',NOW.getTime())!.weekly!.usedPercent,38);
  assert.equal(claudeCliWindows('Not logged in',NOW.getTime()),undefined);
  assert.equal(claudeCliWindows(undefined,NOW.getTime()),undefined);
 });
