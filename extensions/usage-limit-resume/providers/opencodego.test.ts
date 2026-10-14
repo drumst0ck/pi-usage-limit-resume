@@ -129,11 +129,11 @@ test("the returned value never contains the key", async () => {
 	assert.ok(!JSON.stringify(w).includes(SECRET));
 });
 
-// ---- Ported from CodexBar (API-key path only) ----
+// ---- Provider response examples ----
 
-// Payload from CodexBar Tests/CodexBarTests/OpenCodeGoWebOverlayTests.swift (MIT, (c) Peter Steinberger)
-// CodexBar asserts primary 3, secondary 1, tertiary 0 (resetInSec 18100 / 266500 / 1539100 relative to its `now`).
-test("CodexBar fixture: resetInSec payload maps to rolling/weekly/monthly relative to now", () => {
+// Example payload for this provider's usage response.
+// The reference client asserts primary 3, secondary 1, tertiary 0 (resetInSec 18100 / 266500 / 1539100 relative to its `now`).
+test("resetInSec payload maps to rolling/weekly/monthly relative to now", () => {
 	const payload = JSON.parse(`{"usage": {
 	  "rolling": {"percent": 3, "resetInSec": 18100},
 	  "weekly": {"percent": 1, "resetInSec": 266500},
@@ -145,14 +145,14 @@ test("CodexBar fixture: resetInSec payload maps to rolling/weekly/monthly relati
 	assert.deepEqual(w.monthly, { usedPercent: 0, resetsAt: NOW + 1_539_100_000 });
 });
 
-// Payload shape from CodexBar Tests/CodexBarTests/OpenCodeGoUsageFetcherErrorTests.swift (MIT, (c) Peter Steinberger)
+// Example payload or rule for this provider's usage response.
 // (`public usage API sends bearer token and preserves percent units`; the test serializes this dict with JSONSerialization.)
-// CodexBar asserts the percent is preserved as-is (0.5 stays 0.5, 1 stays 1) and absent windows stay absent.
-const CODEXBAR_MATRIX: Array<[number, number | null, number | null]> = [
+// The reference client asserts the percent is preserved as-is (0.5 stays 0.5, 1 stays 1) and absent windows stay absent.
+const WINDOW_MATRIX: Array<[number, number | null, number | null]> = [
 	[12, 8, 35], [3, 1, 0], [1, 1, 1], [0, 0, 0], [100, 100, 100], [0.5, 0.5, 0.5], [1, null, null], [1, 1, null], [1, null, 1],
 ];
-for (const [rolling, weekly, monthly] of CODEXBAR_MATRIX) {
-	test(`CodexBar fixture: percent units preserved for ${rolling}/${weekly}/${monthly}`, async () => {
+for (const [rolling, weekly, monthly] of WINDOW_MATRIX) {
+	test(`the reference client fixture: percent units preserved for ${rolling}/${weekly}/${monthly}`, async () => {
 		const dates = ["2026-08-12T02:00:00.000Z", "2026-08-18T00:00:00.000Z", "2026-09-01T00:00:00.000Z"];
 		const usage: Record<string, any> = { rolling: { percent: rolling, resetsAt: dates[0] } };
 		if (weekly !== null) usage.weekly = { percent: weekly, resetsAt: dates[1] };
@@ -167,17 +167,17 @@ for (const [rolling, weekly, monthly] of CODEXBAR_MATRIX) {
 	});
 }
 
-// Payload from CodexBar Tests/CodexBarTests/OpenCodeGoUsageFetcherErrorTests.swift (MIT, (c) Peter Steinberger)
-// CodexBar maps HTTP 401 `{"error":"unauthorized"}` to invalidCredentials; we fall through silently (undefined).
-test("CodexBar fixture: 401 {\"error\":\"unauthorized\"} and 403 fall through without throwing", async () => {
+// Example payload for this provider's usage response.
+// The reference client maps HTTP 401 `{"error":"unauthorized"}` to invalidCredentials; we fall through silently (undefined).
+test("401 {\"error\":\"unauthorized\"} and 403 fall through without throwing", async () => {
 	for (const status of [401, 403]) {
 		assert.equal(await source(ctx({ fetch: async () => new Response('{"error":"unauthorized"}', { status }) })), undefined);
 	}
 });
 
-// Behavior from CodexBar docs/opencode.md ("Missing ... rolling usage fields should raise parse errors; omitted weekly usage stays absent")
+// Example payload or rule for this provider's usage response.
 // and OpenCodeGoUsageFetcher.parseAPIUsage (`usage.rolling` required, no `usage` object => "Missing usage fields.").
-test("CodexBar behavior: missing usage / missing rolling is a parse failure, omitted weekly stays absent", () => {
+test("missing usage / missing rolling is a parse failure, omitted weekly stays absent", () => {
 	assert.equal(windowsFromPayload({ usage: {} }, NOW), undefined);
 	assert.equal(windowsFromPayload({ rolling: { percent: 3, resetInSec: 60 } }, NOW), undefined);
 	assert.equal(windowsFromPayload({ usage: { weekly: { percent: 1, resetInSec: 60 } } }, NOW), undefined);
@@ -185,9 +185,9 @@ test("CodexBar behavior: missing usage / missing rolling is a parse failure, omi
 	assert.equal(w.weekly, undefined);
 });
 
-// Parser rules from CodexBar Sources/CodexBarCore/Providers/Shared/OpenCodeWebParsing.swift (no fixture; shape inferred, no CodexBar fixture):
+// Example payload or rule for this provider's usage response.
 // strings-as-numbers for percent/reset, and the API path never rescales a percent <= 1.
-test("shape inferred, no CodexBar fixture: numeric strings for percent and resetInSec", () => {
+test("shape inferred, no sample payload: numeric strings for percent and resetInSec", () => {
 	const w = windowsFromPayload({ usage: { rolling: { percent: " 0.5 ", resetInSec: "600" } } }, NOW)!;
 	assert.deepEqual(w.fiveHour, { usedPercent: 0.5, resetsAt: NOW + 600_000 });
 });

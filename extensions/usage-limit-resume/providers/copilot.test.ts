@@ -6,7 +6,7 @@ const NOW = 1_800_000_000_000;
 const KEY = "gho_test_secret_123";
 const RESET = Date.UTC(2025, 1, 1); // 2025-02-01T00:00:00Z
 
-// Shape taken from CodexBar's CopilotUsageModels: quota_snapshots.{premium_interactions,chat}, one quota_reset_date.
+// Shape taken from the reference client's CopilotUsageModels: quota_snapshots.{premium_interactions,chat}, one quota_reset_date.
 const snap = (percentRemaining: number, extra: Record<string, unknown> = {}) => ({ entitlement: 500, remaining: 450, percent_remaining: percentRemaining, quota_id: "x", ...extra });
 const payload = (quotaSnapshots: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ copilot_plan: "free", assigned_date: "2025-01-01", quota_reset_date: "2025-02-01", quota_snapshots: quotaSnapshots, ...extra });
 const sample = payload({ premium_interactions: snap(90), chat: snap(100, { entitlement: 0, remaining: 0, unlimited: true }) });
@@ -137,8 +137,8 @@ test("source: 401/403 (e.g. a short-lived Copilot token), HTTP errors, thrown fe
 	assert.equal(await source(bad.ctx), undefined);
 });
 
-// ---- Payloads ported from CodexBar fixtures --------------------------------------------------------------
-// CodexBar keeps windows without a reset date; we have nothing to save then, so the verbatim payloads that carry
+// ---- Provider response examples ----
+// The reference client keeps windows without a reset date; we have nothing to save then, so the verbatim payloads that carry
 // no quota_reset_date resolve to undefined, and `withReset` adds the one field the fixture lacks to compare values.
 const FAKE_NOW = Date.UTC(2024, 0, 1);
 const R = "2026-09-01";
@@ -146,7 +146,7 @@ const R_MS = Date.UTC(2026, 8, 1);
 const withReset = (json: string, reset: string = R): any => ({ ...JSON.parse(json), quota_reset_date: reset });
 const used = (json: string, reset?: string) => windowsFromPayload(withReset(json, reset))?.monthly?.usedPercent;
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: decodes quota snapshots payload (premium 90% remaining, chat 50%)", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -160,7 +160,7 @@ test("ported: decodes quota snapshots payload (premium 90% remaining, chat 50%)"
 	assert.deepEqual(windowsFromPayload(JSON.parse(json)), { monthly: { usedPercent: 50, resetsAt: RESET } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: chat-only payload without dates has no reset to save; with one it is 62.5% used", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -170,7 +170,7 @@ test("ported: chat-only payload without dates has no reset to save; with one it 
 	assert.equal(used(json), 62.5);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: explicit empty date fields carry no reset", () => {
 	const json = `{
 	  "copilot_plan": "free", "assigned_date": "", "quota_reset_date": "",
@@ -179,7 +179,7 @@ test("ported: explicit empty date fields carry no reset", () => {
 	assert.equal(windowsFromPayload(JSON.parse(json)), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: monthly and limited quotas as strings-as-numbers (chat 125/500, completions 75/300 -> 75% used)", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -189,13 +189,13 @@ test("ported: monthly and limited quotas as strings-as-numbers (chat 125/500, co
 	assert.equal(used(json), 75);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: missing limited quotas are not assumed full; monthly only yields nothing", () => {
 	const json = `{ "copilot_plan": "free", "monthly_quotas": { "chat": 500, "completions": 300 } }`;
 	assert.equal(used(json), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: monthly fallback is per quota, only when the limited value exists (completions 60/300 = 80% used)", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -205,7 +205,7 @@ test("ported: monthly fallback is per quota, only when the limited value exists 
 	assert.equal(used(json), 80);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: partial direct chat (62.5% used) merged with monthly completions (80% used) -> most used", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -216,7 +216,7 @@ test("ported: partial direct chat (62.5% used) merged with monthly completions (
 	assert.equal(used(json), 80);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: unknown quota snapshot key is used as the chat fallback (40% remaining -> 60% used)", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -225,7 +225,7 @@ test("ported: unknown quota snapshot key is used as the chat fallback (40% remai
 	assert.equal(used(json), 60);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: an empty known snapshot does not block the unknown-key fallback", () => {
 	const json = `{
 	  "copilot_plan": "free",
@@ -237,21 +237,21 @@ test("ported: an empty known snapshot does not block the unknown-key fallback", 
 	assert.equal(used(json), 60);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: percent derived from entitlement/remaining when percent_remaining is missing (30/120 -> 75% used)", () => {
 	const json = `{ "copilot_plan": "free", "quota_snapshots": { "chat": { "entitlement": 120, "remaining": 30, "quota_id": "chat" } } }`;
 	assert.equal(used(json), 75);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
-test("ported: over-quota snapshots (CodexBar shows 115%) are clamped to 100 by our Windows contract", () => {
+// Example payload for this provider's usage response.
+test("ported: over-quota snapshots  are clamped to 100 by our Windows contract", () => {
 	const pct = `{ "copilot_plan": "paid", "quota_snapshots": { "premium_interactions": { "entitlement": 500, "remaining": -75, "percent_remaining": -15, "quota_id": "premium_interactions" } } }`;
 	const derived = `{ "copilot_plan": "paid", "quota_snapshots": { "chat": { "entitlement": 500, "remaining": -75, "quota_id": "chat" } } }`;
 	assert.equal(used(pct), 100);
 	assert.equal(used(derived), 100);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: underdetermined percent (remaining only, or entitlement only) yields no window", () => {
 	const remainingOnly = `{ "copilot_plan": "free", "quota_snapshots": { "chat": { "remaining": 30, "quota_id": "chat" } } }`;
 	const entitlementOnly = `{ "copilot_plan": "free", "quota_snapshots": { "chat": { "entitlement": 120, "quota_id": "chat" } } }`;
@@ -259,7 +259,7 @@ test("ported: underdetermined percent (remaining only, or entitlement only) yiel
 	assert.equal(used(entitlementOnly), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: unusable direct snapshot falls back to monthly counts (100/400 -> 75% used)", () => {
 	const noRemaining = `{
 	  "copilot_plan": "free",
@@ -275,13 +275,13 @@ test("ported: unusable direct snapshot falls back to monthly counts (100/400 -> 
 	assert.equal(used(noEntitlement), 75);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: zero monthly denominator is skipped", () => {
 	const json = `{ "copilot_plan": "free", "monthly_quotas": { "chat": 0 }, "limited_user_quotas": { "chat": 0 } }`;
 	assert.equal(used(json), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: business token-based billing zero-entitlement placeholders are not usage", () => {
 	const json = `{
 	  "copilot_plan": "business", "token_based_billing": true,
@@ -294,7 +294,7 @@ test("ported: business token-based billing zero-entitlement placeholders are not
 	assert.equal(used(json), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: finite premium plus unlimited chat_messages (no percent) -> only premium counts (4.5% used)", () => {
 	const json = `{
 	  "copilot_plan": "individual",
@@ -306,7 +306,7 @@ test("ported: finite premium plus unlimited chat_messages (no percent) -> only p
 	assert.equal(used(json), 4.5);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: unlimited with a placeholder percent_remaining of 0 is not a limit", () => {
 	const json = `{
 	  "copilot_plan": "individual",
@@ -315,7 +315,7 @@ test("ported: unlimited with a placeholder percent_remaining of 0 is not a limit
 	assert.equal(used(json), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift and CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: token-billed business payload with credits_used and unlimited snapshots has no window", () => {
 	const json = `{
 	  "copilot_plan": "business", "token_based_billing": true, "quota_reset_date": "2026-09-01",
@@ -327,7 +327,7 @@ test("ported: token-billed business payload with credits_used and unlimited snap
 	assert.equal(windowsFromPayload(JSON.parse(json)), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift and CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: zero-entitlement/unlimited direct premium with credits_used falls back to monthly completions (75 remaining of 300 -> 75% used)", () => {
 	const zero = `{
 	  "copilot_plan": "business", "token_based_billing": true, "quota_reset_date": "2026-09-01",
@@ -343,13 +343,13 @@ test("ported: zero-entitlement/unlimited direct premium with credits_used falls 
 	assert.deepEqual(windowsFromPayload(JSON.parse(unlimited)), { monthly: { usedPercent: 75, resetsAt: R_MS } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageModelsTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: percent-only snapshot (no entitlement/remaining) is a real window (40% remaining -> 60% used)", () => {
 	const json = `{ "copilot_plan": "business", "quota_snapshots": { "chat": { "percent_remaining": 40, "quota_id": "chat" } } }`;
 	assert.equal(used(json), 60);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: fetcher fixture, premium 25% remaining + chat 80% remaining, reset 2026-07-01 -> 75% used", () => {
 	const json = `{
 	  "copilot_plan": "individual", "quota_reset_date": "2026-07-01",
@@ -361,7 +361,7 @@ test("ported: fetcher fixture, premium 25% remaining + chat 80% remaining, reset
 	assert.deepEqual(windowsFromPayload(JSON.parse(json)), { monthly: { usedPercent: 75, resetsAt: Date.UTC(2026, 6, 1) } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: fetcher fixture with fractional percent and ISO reset (78.1% remaining -> 21.9% used)", () => {
 	const json = `{
 	  "copilot_plan": "individual", "quota_reset_date": "2026-08-01T00:00:00Z",
@@ -375,7 +375,7 @@ test("ported: fetcher fixture with fractional percent and ISO reset (78.1% remai
 	assert.equal(w!.monthly!.resetsAt, Date.UTC(2026, 7, 1));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: only an unlimited chat_messages quota is not a failure but has no window", () => {
 	const json = `{
 	  "copilot_plan": "individual", "quota_reset_date": "2026-07-01",
@@ -384,7 +384,7 @@ test("ported: only an unlimited chat_messages quota is not a failure but has no 
 	assert.equal(windowsFromPayload(JSON.parse(json)), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: unlimited chat_messages unknown key plus finite monthly chat (60/100 remaining) -> 40% used", () => {
 	const json = `{
 	  "copilot_plan": "individual",
@@ -394,7 +394,7 @@ test("ported: unlimited chat_messages unknown key plus finite monthly chat (60/1
 	assert.equal(used(json), 40);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift and CopilotZeroAllowanceTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: metered account with credits_used 0 and full remaining is a real 0% window", () => {
 	const json = `{
 	  "copilot_plan": "business", "token_based_billing": false,
@@ -408,7 +408,7 @@ test("ported: metered account with credits_used 0 and full remaining is a real 0
 	assert.ok(Math.abs(used(credits)! - 8.33) < 1e-9);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: token-billed business placeholders with credits_used only (no seat entitlement) have no window", () => {
 	const json = `{
 	  "copilot_plan": "business", "token_based_billing": true,
@@ -417,7 +417,7 @@ test("ported: token-billed business placeholders with credits_used only (no seat
 	assert.equal(used(json), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/CopilotUsageFetcherTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: parseQuotaResetDate fixtures (date-only, ISO, fractional seconds, blank)", () => {
 	const at = (reset: string) => windowsFromPayload({ quota_reset_date: reset, quota_snapshots: { chat: { percent_remaining: 50 } } })?.monthly?.resetsAt;
 	assert.equal(at("2026-07-01"), Date.UTC(2026, 6, 1));
@@ -426,14 +426,14 @@ test("ported: parseQuotaResetDate fixtures (date-only, ISO, fractional seconds, 
 	assert.equal(at(" "), undefined);
 });
 
-// shape inferred, no CodexBar fixture: CodexBar's tests never feed a past reset date; we do not filter it here either.
+// shape inferred, no sample payload: the reference client's tests never feed a past reset date; we do not filter it here either.
 test("windowsFromPayload does not depend on nowMs (past-reset filtering is the caller's job)", () => {
 	const w = windowsFromPayload(withReset(`{ "quota_snapshots": { "chat": { "percent_remaining": 10 } } }`, "2020-01-01"));
 	assert.equal(w?.monthly?.usedPercent, 90);
 	assert.ok(w!.monthly!.resetsAt < FAKE_NOW);
 });
 
-// shape inferred, no CodexBar fixture for HTTP statuses: CodexBar maps 401/403 to unauthorized and other non-200 to bad response (both errors).
+// shape inferred, no sample payload for HTTP statuses: the reference client maps 401/403 to unauthorized and other non-200 to bad response (both errors).
 test("source: ported payload through the HTTP path, and 401/403 mapped to undefined", async () => {
 	const body = withReset(`{ "copilot_plan": "individual", "quota_snapshots": { "premium_interactions": { "entitlement": 500, "remaining": 125, "percent_remaining": 25, "quota_id": "premium_interactions" } } }`, "2026-07-01");
 	const ok = await source(ctx({ key: KEY, body }).ctx);

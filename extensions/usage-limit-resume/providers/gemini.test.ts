@@ -164,26 +164,26 @@ test("source: credential file is never modified", async () => {
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// ---- Ported from CodexBar fixtures. nowMs is fixed BEFORE every payload date so no reset can look "past". ----
+// ---- Provider response examples ----
 const EARLY = Date.parse("2024-12-31T00:00:00Z");
 const near = (a: number | undefined, b: number) => assert.ok(a !== undefined && Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
 
-// Payload from CodexBar Tests/CodexBarTests/GeminiAPITestHelpers.swift sampleQuotaResponse (MIT, (c) Peter Steinberger)
-// CodexBar: pro 60% left, flash 90%, flash-lite 80%, lowest overall = 60% left => 40% used.
+// Example payload for this provider's usage response.
+// The reference client: pro 60% left, flash 90%, flash-lite 80%, lowest overall = 60% left => 40% used.
 const SAMPLE_QUOTA = { buckets: [
 	{ modelId: "gemini-2.5-pro", remainingFraction: 0.6, resetTime: "2025-01-01T00:00:00Z" },
 	{ modelId: "gemini-2.5-flash", remainingFraction: 0.9, resetTime: "2025-01-01T00:00:00Z" },
 	{ modelId: "gemini-2.5-flash-lite", remainingFraction: 0.8, resetTime: "2025-01-01T00:00:00Z" },
 ] };
-test("CodexBar sampleQuotaResponse: lowest model wins, reset parsed", () => {
+test("sampleQuotaResponse: lowest model wins, reset parsed", () => {
 	const w = windowsFromPayload(SAMPLE_QUOTA);
 	near(w?.fiveHour?.usedPercent, 40);
 	assert.equal(w?.fiveHour?.resetsAt, Date.parse("2025-01-01T00:00:00Z"));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/GeminiAPITestHelpers.swift sampleFlashQuotaResponse (MIT, (c) Peter Steinberger)
-// CodexBar keeps the lowest fraction per model (0.4) => 60% used.
-test("CodexBar sampleFlashQuotaResponse: same model twice keeps the lowest fraction", () => {
+// Example payload for this provider's usage response.
+// The reference client keeps the lowest fraction per model (0.4) => 60% used.
+test("sampleFlashQuotaResponse: same model twice keeps the lowest fraction", () => {
 	const w = windowsFromPayload({ buckets: [
 		{ modelId: "gemini-2.5-flash", remainingFraction: 0.9, resetTime: "2025-01-01T00:00:00Z" },
 		{ modelId: "gemini-2.5-flash", remainingFraction: 0.4, resetTime: "2025-01-01T00:00:00Z" },
@@ -191,9 +191,9 @@ test("CodexBar sampleFlashQuotaResponse: same model twice keeps the lowest fract
 	near(w?.fiveHour?.usedPercent, 60);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/GeminiMenuBarWindowTests.swift (MIT, (c) Peter Steinberger)
-// CodexBar: flash-lite only, usedPercent == (1 - remainingFraction) * 100, including the exhausted 0.0 case.
-test("CodexBar Flash Lite-only quota (0.6 and 0.0)", () => {
+// Example payload for this provider's usage response.
+// The reference client: flash-lite only, usedPercent == (1 - remainingFraction) * 100, including the exhausted 0.0 case.
+test("Flash Lite-only quota (0.6 and 0.0)", () => {
 	for (const f of [0.6, 0.0]) {
 		const w = windowsFromPayload({ buckets: [{ modelId: "gemini-2.5-flash-lite", remainingFraction: f, resetTime: "2030-01-01T00:00:00Z" }] });
 		assert.equal(w?.fiveHour?.usedPercent, (1 - f) * 100);
@@ -201,15 +201,15 @@ test("CodexBar Flash Lite-only quota (0.6 and 0.0)", () => {
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/GeminiStatusProbeAPITests.swift (MIT, (c) Peter Steinberger)
-// CodexBar: {"buckets": []} is a parse failure ("Could not parse Gemini usage").
-test("CodexBar empty buckets => no windows", () => {
+// Example payload for this provider's usage response.
+// The reference client: {"buckets": []} is a parse failure ("Could not parse Gemini usage").
+test("empty buckets => no windows", () => {
 	assert.equal(windowsFromPayload({ buckets: [] }), undefined);
 });
 
-// Parser behavior from CodexBar GeminiStatusProbe.parseAPIResponse (MIT, (c) Peter Steinberger): buckets without a
-// modelId are skipped. shape inferred, no CodexBar fixture
-test("bucket without modelId is ignored like CodexBar", () => {
+// Example payload or rule for this provider's usage response.
+// modelId are skipped. shape inferred, no sample payload
+test("bucket without modelId is ignored", () => {
 	assert.equal(windowsFromPayload({ buckets: [{ remainingFraction: 0.1, resetTime: "2025-01-01T00:00:00Z" }] }), undefined);
 	const w = windowsFromPayload({ buckets: [
 		{ remainingFraction: 0.0, resetTime: "2025-01-01T00:00:00Z" },
@@ -218,7 +218,7 @@ test("bucket without modelId is ignored like CodexBar", () => {
 	assert.deepEqual(w, { fiveHour: { usedPercent: 50, resetsAt: Date.parse("2025-01-02T00:00:00Z") } });
 });
 
-// CodexBar ISO8601DateParser accepts fractional seconds and plain internet date-time. shape inferred, no CodexBar fixture
+// The reference client ISO8601DateParser accepts fractional seconds and plain internet date-time. shape inferred, no sample payload
 test("resetTime with fractional seconds parses", () => {
 	const w = windowsFromPayload({ buckets: [{ modelId: "m", remainingFraction: 0.5, resetTime: "2025-01-01T00:00:00.123456Z" }] });
 	assert.equal(w?.fiveHour?.resetsAt, Date.parse("2025-01-01T00:00:00.123Z"));
@@ -234,8 +234,8 @@ const LOAD_UNSUPPORTED = {
 	}],
 };
 
-// Payloads from CodexBar Tests/CodexBarTests/GeminiAPITestHelpers.swift loadCodeAssist* helpers (MIT, (c) Peter Steinberger)
-test("CodexBar loadCodeAssist bodies: project taken from cloudaicompanionProject, {} when absent", async () => {
+// Example payload for this provider's usage response.
+test("loadCodeAssist bodies: project taken from cloudaicompanionProject, {} when absent", async () => {
 	for (const [load, expected] of [
 		[{ currentTier: { id: "free-tier", name: "free" }, cloudaicompanionProject: "cloudaicompanion-123", paidTier: { name: "Plus" } }, { project: "cloudaicompanion-123" }],
 		[{ currentTier: { id: "standard-tier", name: "standard" } }, {}],
@@ -253,9 +253,9 @@ test("CodexBar loadCodeAssist bodies: project taken from cloudaicompanionProject
 	}
 });
 
-// Payloads from CodexBar Tests/CodexBarTests/GeminiAPITestHelpers.swift consumerTierDeprecationResponse and
-// quotaSubscriptionRequiredResponse (MIT, (c) Peter Steinberger). CodexBar throws; we fall through silently.
-test("CodexBar error bodies on quota (403 deprecation, 403 SUBSCRIPTION_REQUIRED, 401) => undefined", async () => {
+// Example payload for this provider's usage response.
+// Example payload or rule for this provider's usage response.
+test("error bodies on quota (403 deprecation, 403 SUBSCRIPTION_REQUIRED, 401) => undefined", async () => {
 	const bodies: Array<[unknown, number]> = [
 		[{ error: { code: 403, message: "IneligibleTierError / UNSUPPORTED_CLIENT: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products.", status: "PERMISSION_DENIED" } }, 403],
 		[{ error: { code: 403, message: "You do not have a valid license of this product. Please contact your administrator to request a license. (#3501)", status: "PERMISSION_DENIED", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SUBSCRIPTION_REQUIRED", domain: "cloudaicompanion.googleapis.com" }] } }, 403],
@@ -270,7 +270,7 @@ test("CodexBar error bodies on quota (403 deprecation, 403 SUBSCRIPTION_REQUIRED
 	}
 });
 
-// Credential shape from CodexBar Tests/CodexBarTests/GeminiTestEnvironment.swift writeCredentials (MIT, (c) Peter Steinberger):
+// Example payload or rule for this provider's usage response.
 // expiry_date is epoch ms written as a non-integer double; id_token is present; token valid at EARLY.
 test("credential file with fractional expiry_date and id_token is accepted and token not leaked", async () => {
 	const { dir } = home(JSON.stringify({ access_token: SECRET, refresh_token: "r", id_token: "header.e30.sig", expiry_date: 1735689600000.123 }));
@@ -281,7 +281,7 @@ test("credential file with fractional expiry_date and id_token is accepted and t
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// CodexBar refreshes an access-token-less credential file; we never refresh. shape inferred, no CodexBar fixture
+// The reference client refreshes an access-token-less credential file; we never refresh. shape inferred, no sample payload
 test("refresh-token-only credential file => undefined, no network", async () => {
 	const { dir } = home({ refresh_token: "refresh-token", expiry_date: NOW + 3600_000 });
 	try {
@@ -291,7 +291,7 @@ test("refresh-token-only credential file => undefined, no network", async () => 
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// Settings values from CodexBar GeminiStatusProbeAPITests `rejects api key auth types` (arguments "gemini-api-key", "api-key")
+// Settings values from the reference client GeminiStatusProbeAPITests `rejects api key auth types` (arguments "gemini-api-key", "api-key")
 test("gemini-api-key auth type unsupported", async () => {
 	const { dir } = home(creds(), 0o600, { security: { auth: { selectedType: "gemini-api-key" } } });
 	try {

@@ -1,4 +1,4 @@
-// Gemini quota window from the Gemini CLI login, as CodexBar does (GeminiStatusProbe): loadCodeAssist for the
+// Gemini quota window from the Gemini CLI login (GeminiStatusProbe): loadCodeAssist for the
 // project id, then retrieveUserQuota. Gemini's quota is a rolling/daily per-model bucket, so the most constrained
 // bucket is mapped to the session-like `fiveHour` slot.
 import { readFileSync, statSync } from "node:fs";
@@ -13,7 +13,7 @@ const TIMEOUT_MS = 5_000;
 
 /**
  * Pure: `retrieveUserQuota` body to windows. Per bucket usedPercent = (1 - remainingFraction) * 100; the bucket with
- * the lowest remainingFraction wins (ties: earliest reset). Like CodexBar, buckets without a modelId, a numeric fraction or a parseable reset are skipped.
+ * the lowest remainingFraction wins (ties: earliest reset). buckets without a modelId, a numeric fraction or a parseable reset are skipped.
  */
 export function windowsFromPayload(payload: any): Windows | undefined {
 	if (!Array.isArray(payload?.buckets)) return undefined;
@@ -36,7 +36,7 @@ function readToken(env: NodeJS.ProcessEnv, nowMs: number): string | undefined {
 		try {
 			const type = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))?.security?.auth?.selectedType;
 			if (type === "gemini-api-key" || type === "api-key" || type === "vertex-ai") return undefined;
-		} catch { /* no settings: CodexBar treats unknown as OAuth */ }
+		} catch { /* no settings: the reference client treats unknown as OAuth */ }
 		const file = join(dir, "oauth_creds.json");
 		if (statSync(file).mode & 0o077) return undefined;
 		const c = JSON.parse(readFileSync(file, "utf8"));
@@ -66,7 +66,7 @@ export const source: NativeSource = async (ctx) => {
 				const id = typeof p === "string" ? p : p?.id ?? p?.projectId;
 				if (typeof id === "string" && id.trim()) project = id.trim();
 			}
-		} catch { /* CodexBar falls back to an unscoped quota request */ }
+		} catch { /* the reference client falls back to an unscoped quota request */ }
 		const res = await post(GEMINI_QUOTA_URL, project ? { project } : {});
 		if (!res.ok) return undefined;
 		return windowsFromPayload(await res.json());

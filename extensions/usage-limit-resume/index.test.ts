@@ -52,7 +52,7 @@ function harness(t: any, o: any = {}) {
    sendUserMessage: (...a: any[]) => sent.push(a), sendMessage: (...a: any[]) => messages.push(a),
   } as any, {
    store, env, argv: opts.argv ?? ['node', 'pi'], config: opts.config ?? DEFAULT_CONFIG,
-   codexbar: opts.codexbar ?? (async () => undefined), claudeCli: opts.claudeCli ?? (async () => undefined),
+   claudeCli: opts.claudeCli ?? (async () => undefined),
    ...(opts.useDefaultSources ? {} : { nativeSources: opts.nativeSources ?? {} }), fetch: opts.fetch,
   });
   const c = {
@@ -230,16 +230,15 @@ test('immutable shared cooldown records retain the longest concurrent reset', t 
  const h = harness(t); const other = new SharedState(h.dir); h.store.limit('claude', Date.now() + 600_000); other.limit('claude', Date.now() + 30_000);
  assert.equal(h.store.cooldown('claude'), Date.now() + 600_000); h.advance(601_000); assert.equal(other.cooldown('claude'), 0);
 });
-test('any other OAuth provider is its own family and reaches CodexBar under its Pi provider id', async t => {
- const seen: string[] = [];
- const h = harness(t, { current: cursorM, codexbar: async (f: string) => { seen.push(f); return undefined; } });
+test('any other OAuth provider is its own family, named after its Pi provider id', async t => {
+ const h = harness(t, { current: cursorM });
  const done = await h.hit('429 usage limit reached');
- assert.deepEqual(seen, ['cursor-pro']); assert.equal(lastLimit(h).family, 'cursor-pro'); await done();
+ assert.equal(lastLimit(h).family, 'cursor-pro'); assert.equal(lastLimit(h).source, 'probe'); await done();
 });
 test('the default families cover the Pi providers whose plans report reset times', () => {
  const of = familyResolver(DEFAULT_CONFIG);
  const expect: Record<string, string> = { anthropic: 'claude', 'pi-claude-max': 'claude', openai: 'codex', 'openai-codex': 'codex', google: 'gemini', 'google-gemini-cli': 'gemini',
-  zai: 'zai', 'zai-coding-cn': 'zai', 'kimi-coding': 'kimi', minimax: 'minimax', 'minimax-cn': 'minimax', 'github-copilot': 'copilot', 'opencode-go': 'opencodego', 'google-antigravity': 'antigravity' };
+  zai: 'zai', 'zai-coding-cn': 'zai', 'kimi-coding': 'kimi', minimax: 'minimax', 'minimax-cn': 'minimax', 'github-copilot': 'copilot', 'opencode-go': 'opencodego' };
  for (const [provider, family] of Object.entries(expect)) assert.equal(of({ provider, id: provider === 'google' || provider === 'google-gemini-cli' ? 'gemini-3-pro' : provider === 'anthropic' || provider === 'pi-claude-max' ? 'claude-opus-5-5' : provider === 'openai' || provider === 'openai-codex' ? 'gpt-6' : 'x' }), family, provider);
  assert.equal(of({ provider: 'some-new-oauth', id: 'm' }), 'some-new-oauth'); assert.equal(of(undefined), undefined);
 });
@@ -282,55 +281,43 @@ test('cached windows from another family never leak into this limit', async t =>
  h.ctx.model = claude; const done = await h.hit(); assert.equal(lastLimit(h).source, 'probe'); await done();
 });
 
-// ---------------------------------------------------------------- CodexBar: optional, for every provider id
-const bar = (primary: any, secondary: any = { usedPercent: 18, resetsAt: '2026-10-20T06:41:19Z' }) => JSON.stringify([{ usage: { primary: { windowMinutes: 300, ...primary }, secondary: { windowMinutes: 10080, ...secondary } } }]);
-test('a limit with no reset in the error asks CodexBar for that provider id', async t => {
- const calls: string[] = []; const reset = Date.now() + 3 * 3600_000;
- const h = harness(t, { current: codex, codexbar: async (f: string) => { calls.push(f); return bar({ usedPercent: 100, resetsAt: iso(reset) }); } });
- const done = await h.hit('The ChatGPT user has reached their Subscription Sharing usage limit.');
- assert.deepEqual(calls, ['codex']); assert.equal(lastLimit(h).source, 'codexbar'); assert.equal(lastLimit(h).resetAt, reset + 90_000); await done();
-});
-test('CodexBar missing, failing or hung falls back to probing', async t => {
- for (const codexbar of [async () => undefined, async () => { throw new Error('boom'); }, () => new Promise<string>(() => {})]) {
-  const h = harness(t, { codexbar }); const p = h.error(); await tick(); h.advance(20_000); await settle();
+// ---------------------------------------------------------------- the reset time is not in the error
+test('a limit with no reset anywhere falls back to probing, even when the provider source is missing, failing or hung', async t => {
+ for (const claude of [undefined, async () => { throw new Error('boom'); }, () => new Promise<any>(() => {})]) {
+  const h = harness(t, { nativeSources: claude ? { claude } : {} }); const p = h.error(); await tick(); h.advance(20_000); await settle();
   assert.equal(lastLimit(h).source, 'probe'); h.controller.abort(); await p;
  }
 });
-test('a reset found in headers or the message never spawns CodexBar', async t => {
- let n = 0; const h = harness(t, { codexbar: async () => { n++; return undefined; } });
+test('a reset found in headers or the message never queries the provider source', async t => {
+ let n = 0; const h = harness(t, { nativeSources: { claude: async () => { n++; return undefined; } } });
  await h.headers(3600); const done = await h.hit(); assert.equal(n, 0); await done();
-});
-test('PI_USAGE_LIMIT_CODEXBAR=0 never spawns CodexBar, neither for refresh nor on a limit', async t => {
- let n = 0; const h = harness(t, { refresh: true, env: { PI_USAGE_LIMIT_CODEXBAR: '0' }, codexbar: async () => { n++; return undefined; } });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); const done = await h.hit(); await settle();
- assert.equal(n, 0); assert.equal(lastLimit(h).source, 'probe'); await done();
 });
 
 // ---------------------------------------------------------------- saving the resets (background refresh and headers)
 test('a normal message saves the resets of the provider in use without delaying the message', async t => {
  const calls: string[] = [];
- const h = harness(t, { refresh: true, codexbar: (f: string) => { calls.push(f); return Promise.resolve(bar({ usedPercent: 48, resetsAt: iso(Date.now() + 3600_000) }, { usedPercent: 37, resetsAt: iso(Date.now() + 86400_000) })); } });
+ const h = harness(t, { refresh: true, nativeSources: { claude: async () => { calls.push('claude'); return { fiveHour: { usedPercent: 48, resetsAt: Date.now() + 3600_000 }, weekly: { usedPercent: 37, resetsAt: Date.now() + 86400_000 } }; } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
  assert.deepEqual(calls, ['claude']);
  const w = h.store.windows('claude'); assert.equal(w.fiveHour!.usedPercent, 48); assert.equal(w.weekly!.usedPercent, 37); assert.ok(w.weekly!.resetsAt > w.fiveHour!.resetsAt);
 });
-test('a hung CodexBar never holds the message', async t => {
- const h = harness(t, { refresh: true, codexbar: () => new Promise<string>(() => {}) });
+test('a hung provider source never holds the message', async t => {
+ const h = harness(t, { refresh: true, nativeSources: { claude: () => new Promise<any>(() => {}) } });
  await h.handlers.before_agent_start({}, h.ctx); assert.equal(h.abortCalls, 0);
 });
 test('only the providers actually used are refreshed', async t => {
- const seen: string[] = []; const h = harness(t, { refresh: true, current: zaiM, apiOnly: ['zai'], codexbar: async (f: string) => { seen.push(f); return undefined; } });
+ const seen: string[] = []; const h = harness(t, { refresh: true, current: zaiM, apiOnly: ['zai'], nativeSources: { zai: async () => { seen.push('zai'); return undefined; }, codex: async () => { seen.push('codex'); return undefined; } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.deepEqual([...new Set(seen)], ['zai']);
  h.ctx.model = codex; h.advance(6 * 60_000); await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.deepEqual([...new Set(seen)].sort(), ['codex', 'zai']);
 });
 test('refresh is throttled across messages and runs again after 5 minutes', async t => {
- let n = 0; const h = harness(t, { refresh: true, current: codex, codexbar: async (f: string) => { if (f === 'codex') n++; return bar({ usedPercent: 10, resetsAt: iso(Date.now() + 3600_000) }); } });
+ let n = 0; const h = harness(t, { refresh: true, current: codex, nativeSources: { codex: async () => { n++; return { fiveHour: { usedPercent: 10, resetsAt: Date.now() + 3600_000 } }; } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle(); const first = n;
  await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(n, first);
  h.advance(6 * 60_000); await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(n, first * 2);
 });
 test('another process refreshing recently also throttles this one', async t => {
- let n = 0; const h = harness(t, { refresh: true, codexbar: async () => { n++; return undefined; } });
+ let n = 0; const h = harness(t, { refresh: true, nativeSources: { claude: async () => { n++; return undefined; } } });
  h.store.setWindows('claude', { fiveHour: { usedPercent: 5, resetsAt: Date.now() + 3600_000 } });
  await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(n, 0);
 });
@@ -365,22 +352,21 @@ function codexHome(h: any, auth: any, mode = 0o600) {
 }
 const cliAuth = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: 'i', access_token: 'cli-access', refresh_token: 'cli-refresh', account_id: 'acct_cli' }, last_refresh: 'x' };
 
-test('a native source supplies windows with Pi\'s own credential, before CodexBar', async t => {
- const calls: any[] = []; let bars = 0; const reset = Date.now() + 3600_000;
- const h = harness(t, { refresh: true, current: zaiM, apiOnly: ['zai'], tokens: { zai: 'zai-key' }, codexbar: async () => { bars++; return undefined; },
+test('a native source supplies windows with Pi\'s own credential', async t => {
+ const calls: any[] = []; const reset = Date.now() + 3600_000;
+ const h = harness(t, { refresh: true, current: zaiM, apiOnly: ['zai'], tokens: { zai: 'zai-key' },
   nativeSources: { zai: async (c: any) => { calls.push([await c.apiKey('zai'), typeof c.fetch, typeof c.nowMs, c.env === undefined]); return { fiveHour: { usedPercent: 100, resetsAt: reset } }; } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.equal(bars, 0); assert.deepEqual(calls[0], ['zai-key', 'function', 'number', false]);
+ assert.deepEqual(calls[0], ['zai-key', 'function', 'number', false]);
  // the saved 100% window now holds the next message
  const p = h.handlers.before_agent_start({}, h.ctx); await settle(); assert.ok(h.store.cooldown('zai') >= reset); h.controller.abort(); await p;
 });
-test('a failing or throwing native source falls through to CodexBar, never to another provider\'s source', async t => {
+test('a failing or throwing native source saves nothing and never borrows another provider\'s source', async t => {
  let codexAuthTouched = 0;
  const h = harness(t, { refresh: true, current: kimiM, apiOnly: ['kimi-coding'], fetch: async () => { codexAuthTouched++; return { ok: false }; },
-  codexbar: async (f: string) => f === 'kimi' ? bar({ usedPercent: 33, resetsAt: iso(Date.now() + 3600_000) }) : undefined,
   nativeSources: { kimi: async () => { throw new Error('boom'); } } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.equal(h.store.windows('kimi').fiveHour!.usedPercent, 33); assert.equal(codexAuthTouched, 0);
+ assert.equal(h.store.windows('kimi').fiveHour, undefined); assert.equal(codexAuthTouched, 0);
 });
 test('a native source that finds nothing does not borrow Codex\'s windows', async t => {
  const home = harness(t); const { home: codexDir } = codexHome(home, cliAuth); let fetched = 0;
@@ -408,23 +394,22 @@ test('without overrides the extension reaches the real zai source through Pi\'s 
  assert.ok(z, 'zai endpoint was called'); assert.match(z[0], /^https:\/\//); assert.equal(z[1].headers.authorization ?? z[1].headers.Authorization, 'Bearer pi-held-zai-key'); assert.equal(z[1].redirect, 'error');
 });
 
-// ---------------------------------------------------------------- Codex: the CLI login, read-only, like CodexBar
-test('Codex windows come from the usage endpoint with Pi\'s own credential, CodexBar not needed', async t => {
- const r = sec(Date.now()) + 3 * 3600; const calls: any[] = []; let bars = 0;
- const h = harness(t, { refresh: true, current: codex, tokens: { 'openai-codex': token }, codexbar: async () => { bars++; return undefined; },
+// ---------------------------------------------------------------- Codex: the CLI login, read-only
+test('Codex windows come from the usage endpoint with Pi\'s own credential', async t => {
+ const r = sec(Date.now()) + 3 * 3600; const calls: any[] = [];
+ const h = harness(t, { refresh: true, current: codex, tokens: { 'openai-codex': token },
   fetch: async (u: string, i: any) => { calls.push([u, i]); return { ok: true, json: async () => wham(100, r) }; } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 100); assert.equal(bars, 0);
+ assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 100);
  assert.match(calls[0][0], /chatgpt\.com\/backend-api\/wham\/usage/); assert.equal(calls[0][1].headers['chatgpt-account-id'], 'acct_1');
 });
-test('without a usable Codex credential the refresh falls through to CodexBar, then to nothing', async t => {
- const h = harness(t, { refresh: true, current: codex, tokens: { openai: 'opaque' }, fetch: async () => { throw new Error('no'); },
-  codexbar: async (f: string) => f === 'codex' ? bar({ usedPercent: 77, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 77);
+test('without a usable Codex credential the refresh finds nothing but is still throttled', async t => {
+ const h = harness(t, { refresh: true, current: codex, tokens: { openai: 'opaque' }, fetch: async () => { throw new Error('no'); } });
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('codex').fiveHour, undefined);
  const h2 = harness(t, { refresh: true, current: codex }); await h2.handlers.before_agent_start({}, h2.ctx); await settle();
  assert.equal(h2.store.windows('codex').fiveHour, undefined); assert.ok(h2.store.windows('codex').checkedAt);
 });
-test('Codex CLI login (auth.json) feeds the usage endpoint like CodexBar does, read-only', async t => {
+test('Codex CLI login (auth.json) feeds the usage endpoint, read-only', async t => {
  const r = sec(Date.now()) + 3 * 3600; const calls: any[] = [];
  const base = harness(t); const { home, file } = codexHome(base, cliAuth); const before = readFileSync(file, 'utf8'), mtime = statSync(file).mtimeMs;
  const h = harness(t, { refresh: true, current: codex, env: { CODEX_HOME: home }, fetch: async (u: string, i: any) => { calls.push([u, i]); return { ok: true, json: async () => wham(100, r) }; } });
@@ -444,12 +429,11 @@ test('missing, malformed or token-less auth.json falls through quietly', async t
   await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(calls.length, 0);
  }
 });
-test('an expired CLI token (401) falls through to CodexBar without renewing anything', async t => {
+test('an expired CLI token (401) finds nothing and renews nothing', async t => {
  const calls: string[] = []; const base = harness(t); const { home, file } = codexHome(base, cliAuth); const before = readFileSync(file, 'utf8');
- const h = harness(t, { refresh: true, current: codex, env: { CODEX_HOME: home }, fetch: async (u: string) => { calls.push(u); return { ok: false, status: 401 }; },
-  codexbar: async (f: string) => f === 'codex' ? bar({ usedPercent: 61, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
+ const h = harness(t, { refresh: true, current: codex, env: { CODEX_HOME: home }, fetch: async (u: string) => { calls.push(u); return { ok: false, status: 401 }; } });
  await h.handlers.before_agent_start({}, h.ctx); await settle();
- assert.deepEqual(calls.filter(u => !/wham\/usage/.test(u)), []); assert.equal(h.store.windows('codex').fiveHour!.usedPercent, 61); assert.equal(readFileSync(file, 'utf8'), before);
+ assert.deepEqual(calls.filter(u => !/wham\/usage/.test(u)), []); assert.equal(h.store.windows('codex').fiveHour, undefined); assert.equal(readFileSync(file, 'utf8'), before);
 });
 test('the first Codex limit ever, with nothing saved, asks the usage endpoint for the reset', async t => {
  const r = sec(Date.now()) + 4 * 3600; const base = harness(t); const { home } = codexHome(base, cliAuth);
@@ -461,13 +445,13 @@ test('the first Codex limit ever, with nothing saved, asks the usage endpoint fo
 
 // ---------------------------------------------------------------- Claude: headers first, the CLI as the second option
 const cliText = `Current session: 56% used · resets Oct 14 at 6:50pm (Europe/Madrid)\nCurrent week (all models): 38% used · resets Oct 20 at 6pm (Europe/Madrid)`;
-test('Claude windows fall back to the claude CLI when headers have not provided them, before CodexBar', async t => {
- let bars = 0; const h = harness(t, { refresh: true, claudeCli: async () => cliText, codexbar: async () => { bars++; return undefined; } });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 56); assert.equal(bars, 0);
+test('Claude windows fall back to the claude CLI when headers have not provided them', async t => {
+ const h = harness(t, { refresh: true, claudeCli: async () => cliText });
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 56);
 });
-test('claude CLI missing or failing falls through to CodexBar', async t => {
- const h = harness(t, { refresh: true, claudeCli: async () => { throw new Error('ENOENT'); }, codexbar: async (f: string) => f === 'claude' ? bar({ usedPercent: 44, resetsAt: iso(Date.now() + 3600_000) }) : undefined });
- await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour!.usedPercent, 44);
+test('claude CLI missing or failing saves nothing and never breaks the message', async t => {
+ const h = harness(t, { refresh: true, claudeCli: async () => { throw new Error('ENOENT'); } });
+ await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.store.windows('claude').fiveHour, undefined); assert.equal(h.abortCalls, 0);
 });
 test('the claude CLI is refreshed more rarely than the 5 minute cycle, since each run is a process', async t => {
  let n = 0; const h = harness(t, { refresh: true, claudeCli: async () => { n++; return cliText; } });

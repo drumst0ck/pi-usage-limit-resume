@@ -110,7 +110,7 @@ test("the returned value never contains the key", async () => {
 	assert.ok(!JSON.stringify(w).includes(SECRET));
 });
 
-// ---- Ported from CodexBar fixtures. Fake clock sits before every payload date. ----
+// ---- Provider response examples ----
 const T0 = Date.parse("2026-01-01T00:00:00Z");
 const ms = (iso: string) => Date.parse(iso.replace(/(\.\d{3})\d+/, "$1"));
 const near = (actual: number | undefined, expected: number) => assert.ok(Math.abs(actual! - expected) < 1e-5, `${actual} != ${expected}`);
@@ -149,7 +149,7 @@ const mixedInternational = `
   }
 }`;
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: ratio pools keep the 5h identity and monthly total; counts without reset are ignored", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{
@@ -169,8 +169,8 @@ test("ported: ratio pools keep the 5h identity and monthly total; counts without
 	assert.equal(w.monthly!.resetsAt, ms("2026-10-17T00:00:00Z"));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
-test("ported: ratio without reset_time cannot become a window (CodexBar keeps it with a null reset; we need resetsAt)", () => {
+// Example payload for this provider's usage response.
+test("ported: ratio without reset_time cannot become a window (the reference client keeps it with a null reset; we need resetsAt)", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{"usages": {
 	  "limit_7d": {"used_ratio": 0.125, "reset_time": "2026-09-20T00:00:00Z"},
@@ -180,7 +180,7 @@ test("ported: ratio without reset_time cannot become a window (CodexBar keeps it
 	assert.equal(w.fiveHour, undefined);
 });
 
-// Payloads from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: resetless count-only and monthly-only payloads give no window", () => {
 	assert.equal(windowsFromPayload(JSON.parse(`{"limits": [{
 	  "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
@@ -189,18 +189,18 @@ test("ported: resetless count-only and monthly-only payloads give no window", ()
 	assert.equal(windowsFromPayload(JSON.parse(`{"usages": {"limit_month_total": {"used_ratio": 1.05}}}`)), undefined);
 	assert.equal(windowsFromPayload(JSON.parse(`{"usage": {"limit": "100", "used": "25"},
 	 "usages": {"limit_7d": {"used_ratio": -0.5}}}`)), undefined);
-	// Payload from CodexBar Tests/CodexBarTests/KimiProviderTests.swift (MIT, (c) Peter Steinberger)
+	// Example payload for this provider's usage response.
 	assert.equal(windowsFromPayload(JSON.parse(`{"usage":{"limit":"100","used":"25","remaining":"75"},"limits":[]}`)), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: invalid/empty quota bodies do not succeed as unused", () => {
 	for (const json of ["{}", '{"usages":{}}', '{"usages":{"limit_5h":{}}}']) {
 		assert.equal(windowsFromPayload(JSON.parse(json)), undefined, json);
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: zero-ratio placeholder does not hide matching nonzero counts", () => {
 	for (const reset of ["2026-09-19T16:45:58Z", "2026-09-19T16:45:59Z"]) {
 		const w = windowsFromPayload(JSON.parse(`
@@ -212,7 +212,7 @@ test("ported: zero-ratio placeholder does not hide matching nonzero counts", () 
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: zero ratio after a different reset stays authoritative", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{"usage":{"limit":"100","used":"19","remaining":"81",
@@ -222,7 +222,7 @@ test("ported: zero ratio after a different reset stays authoritative", () => {
 	assert.equal(w.weekly!.resetsAt, ms("2026-09-26T16:45:59Z"));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: mixed international response keeps the used weekly and session quotas", () => {
 	const w = windowsFromPayload(JSON.parse(mixedInternational))!;
 	assert.equal(w.weekly!.usedPercent, 19);
@@ -232,7 +232,7 @@ test("ported: mixed international response keeps the used weekly and session quo
 	assert.equal(w.monthly, undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: a count window of a different duration cannot override the session ratio", () => {
 	const w = windowsFromPayload(JSON.parse(mixedInternational.replace('"duration": 300', '"duration": 120')))!;
 	assert.equal(w.weekly!.usedPercent, 19);
@@ -240,7 +240,7 @@ test("ported: a count window of a different duration cannot override the session
 	assert.equal(w.fiveHour!.resetsAt, ms("2026-09-19T14:45:58Z"));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: matching nonzero ratios and counts use the more exhausted reading", () => {
 	for (const ratio of ["0.1869", "0.19", "0.5"]) {
 		const w = windowsFromPayload(JSON.parse(`
@@ -250,17 +250,17 @@ test("ported: matching nonzero ratios and counts use the more exhausted reading"
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: weekly counters reconcile even when a monthly ratio (no reset) is present", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{"usage":{"limit":"100","used":"19","resetTime":"2026-09-19T16:45:59Z"},
 	 "usages":{"limit_7d":{"used_ratio":0,"reset_time":"2026-09-19T16:45:59Z"},
 	           "limit_month_total":{"used_ratio":0.0313}}}`))!;
 	assert.equal(w.weekly!.usedPercent, 19);
-	assert.equal(w.monthly, undefined); // CodexBar shows 3.13% with a null reset
+	assert.equal(w.monthly, undefined); // the reference client shows 3.13% with a null reset
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: unmatched count resets (null, invalid, 3s off) cannot override a zero ratio", () => {
 	for (const reset of ["null", '"invalid"', '"2026-09-19T16:46:02Z"']) {
 		const w = windowsFromPayload(JSON.parse(`
@@ -270,7 +270,7 @@ test("ported: unmatched count resets (null, invalid, 3s off) cannot override a z
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiRatioPoolTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: invalid or empty counts (0, -1, invalid) cannot override a zero ratio", () => {
 	for (const used of ["0", "-1", "invalid"]) {
 		const w = windowsFromPayload(JSON.parse(`
@@ -280,7 +280,7 @@ test("ported: invalid or empty counts (0, -1, invalid) cannot override a zero ra
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiContradictoryUsageTests.swift (issue #4306) (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: exhausted session counts beat its zero ratio; monthly total kept; limit_month_code ignored", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{
@@ -298,7 +298,7 @@ test("ported: exhausted session counts beat its zero ratio; monthly total kept; 
 	assert.equal(w.weekly, undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiProviderTests.swift (parses code API usage response) (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: code API legacy counts 375/2048 weekly and 19/200 session", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{
@@ -329,14 +329,14 @@ test("ported: code API legacy counts 375/2048 weekly and 19/200 session", () => 
 	assert.equal(w.fiveHour!.resetsAt, ms("2026-01-06T15:05:24.374187075Z"));
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiProviderTests.swift (weekly-only, 512/2048) (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: weekly-only counts fill only the weekly slot", () => {
 	const w = windowsFromPayload({ usage: { limit: "2048", used: "512", remaining: "1536", resetTime: "2026-01-09T15:23:13Z" } })!;
 	assert.deepEqual(w.weekly, { usedPercent: 25, resetsAt: ms("2026-01-09T15:23:13Z") });
 	assert.equal(w.fiveHour, undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiProviderTests.swift (parses official numeric values and reset key variants) (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: numeric limits, resetAt/reset_at keys, remaining-only session", () => {
 	const w = windowsFromPayload(JSON.parse(`
 	{
@@ -364,7 +364,7 @@ test("ported: numeric limits, resetAt/reset_at keys, remaining-only session", ()
 	assert.deepEqual(w.fiveHour, { usedPercent: 1, resetsAt: ms("2026-01-06T13:33:02Z") });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/KimiProviderTests.swift (legacy web `usages` array, not the Code API) (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 test("ported: legacy FEATURE_CODING usages array is not a Code API body and gives no window", () => {
 	assert.equal(windowsFromPayload(JSON.parse(`
 	{
@@ -389,7 +389,7 @@ test("ported payloads flow through source() with a pre-reset fake clock", async 
 	assert.equal(w!.weekly!.usedPercent, 19);
 });
 
-// shape inferred, no CodexBar fixture
+// shape inferred, no sample payload
 test("inferred: ratio above 1 with count window of unknown unit does not override", () => {
 	const w = windowsFromPayload({
 		limits: [{ window: { duration: 5, timeUnit: "TIME_UNIT_FORTNIGHT" }, detail: { limit: "100", used: "90", resetTime: "2026-09-19T14:45:59Z" } }],

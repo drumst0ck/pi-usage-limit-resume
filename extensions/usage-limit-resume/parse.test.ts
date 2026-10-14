@@ -1,13 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { codexbarReset, codexbarWindows } from './codexbar.ts';
 import { claudeCliWindows } from './claude-cli.ts';
 import { codexWindowsFromUsage } from './codex-usage.ts';
 import { headerWindows, isUsageLimitError, parseResetHeaders, parseResetTime } from './parse.ts';
 
 const NOW = new Date('2026-10-14T11:00:00Z');
 
-const bar=(primary:any,secondary:any={usedPercent:18,resetsAt:'2026-10-20T06:41:19Z'})=>JSON.stringify([{usage:{primary:{windowMinutes:300,...primary},secondary:{windowMinutes:10080,...secondary}}}]);
 
 const iso=(ms:number)=>new Date(ms).toISOString();
 
@@ -60,20 +58,6 @@ test('"out of extra usage" is a usage limit',()=>{
  assert.equal(isUsageLimitError(`400 {"error":{"type":"invalid_request_error","message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."}}`),true);
 });
 
-test('codexbar output: the exhausted window sets the reset',()=>{
- assert.equal(codexbarReset(bar({usedPercent:100,resetsAt:'2026-10-14T15:13:34Z'}),NOW.getTime()),Date.parse('2026-10-14T15:13:34Z'));
- assert.equal(codexbarReset(bar({usedPercent:93,resetsAt:'2026-10-14T16:50:00Z'}),NOW.getTime()),Date.parse('2026-10-14T16:50:00Z'));
- assert.equal(codexbarReset(bar({usedPercent:48,resetsAt:'2026-10-14T16:50:00Z'}),NOW.getTime()),undefined);
- assert.equal(codexbarReset(bar({usedPercent:100,resetsAt:'2026-10-14T09:00:00Z'}),NOW.getTime()),undefined);
- assert.equal(codexbarReset('not json',NOW.getTime()),undefined);
-});
-
-test('codexbar windows: 5h and weekly are told apart by length, with their reset and usage',()=>{
- const w=codexbarWindows(bar({usedPercent:48,resetsAt:'2026-10-14T16:50:00Z'},{usedPercent:37,resetsAt:'2026-10-20T16:00:00Z'}),NOW.getTime());
- assert.deepEqual(w,{fiveHour:{usedPercent:48,resetsAt:Date.parse('2026-10-14T16:50:00Z')},weekly:{usedPercent:37,resetsAt:Date.parse('2026-10-20T16:00:00Z')}});
- assert.equal(codexbarWindows('nope',NOW.getTime()),undefined);
-});
-
 test('headerWindows: Anthropic fractions and Codex percents become 5h/weekly windows',()=>{
  const n=NOW.getTime();
  assert.deepEqual(headerWindows(anth(0.48,sec(n)+3600,0.37,sec(n)+86400),n),{fiveHour:{usedPercent:48,resetsAt:(sec(n)+3600)*1000},weekly:{usedPercent:37,resetsAt:(sec(n)+86400)*1000}});
@@ -102,10 +86,3 @@ test('claude /usage text becomes 5h and weekly windows',()=>{
  assert.equal(claudeCliWindows(undefined,NOW.getTime()),undefined);
 });
 
-test('codexbar rows are placed by window length: session, weekly, monthly',()=>{
- const row=(m:number,u:number)=>({windowMinutes:m,usedPercent:u,resetsAt:'2026-10-30T00:00:00Z'});
- const w=codexbarWindows(JSON.stringify([{usage:{primary:row(300,1),secondary:row(10080,2),tertiary:row(43200,3)}}]),NOW.getTime())!;
- assert.equal(w.fiveHour!.usedPercent,1);assert.equal(w.weekly!.usedPercent,2);assert.equal(w.monthly!.usedPercent,3);
- const d=codexbarWindows(JSON.stringify([{usage:{primary:row(1440,7),secondary:row(43200,9)}}]),NOW.getTime())!;
- assert.equal(d.fiveHour!.usedPercent,7);assert.equal(d.monthly!.usedPercent,9);
-});

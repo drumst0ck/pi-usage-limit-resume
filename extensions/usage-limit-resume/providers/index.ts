@@ -1,5 +1,5 @@
-// Native usage sources, keyed by family id. Each reads a provider's reset times without CodexBar.
-// Everything else CodexBar supports is reachable through `codexbar usage --provider <id>` when it is installed.
+// Native usage sources, keyed by family id. Each reads a provider's reset times.
+// Any other provider still gets reset times from response headers or the error text, then the probe fallback.
 import type { Family } from "../state.ts";
 import { source as copilot } from "./copilot.ts";
 import { source as gemini } from "./gemini.ts";

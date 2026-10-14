@@ -1,4 +1,4 @@
-// Contract for native usage sources: a provider's 5h/weekly/monthly windows, read without CodexBar.
+// Contract for native usage sources: a provider's 5h/weekly/monthly windows, read with plain HTTP and a credential the user already has.
 import type { Windows } from "../state.ts";
 
 export interface SourceContext {

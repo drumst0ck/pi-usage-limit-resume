@@ -8,7 +8,7 @@ const H = 3600_000;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const ok = (model_remains: unknown[]) => ({ base_resp: { status_code: 0, status_msg: "success" }, data: { current_subscribe_title: "Token Plan Plus", model_remains } });
 
-// Shape of CodexBar's token-plan fixtures: remaining percents as strings, epoch milliseconds.
+// Shape of the reference client's token-plan fixtures: remaining percents as strings, epoch milliseconds.
 const GENERAL = {
 	model_name: "general",
 	current_interval_total_count: 0,
@@ -145,7 +145,7 @@ test("source: key from env, MINIMAX_CODING_API_KEY wins over MINIMAX_API_KEY", a
 	assert.equal(second.calls[0].init.headers.Authorization, `Bearer ${SECRET}`);
 });
 
-test("source: an env key rejected by the global host is retried on the China host (as CodexBar does)", async () => {
+test("source: an env key rejected by the global host is retried on the China host (as the reference client does)", async () => {
 	const { calls, fetchImpl } = recorder(url => url.includes("api.minimaxi.com") ? json(ok([GENERAL])) : json({}, 401));
 	const w = await source(ctx({}, fetchImpl, { MINIMAX_CODING_API_KEY: SECRET }));
 	assert.ok(w?.fiveHour);
@@ -176,15 +176,15 @@ test("source: the returned value contains no secret", async () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// Real CodexBar fixtures, copied VERBATIM (quirks kept: strings-as-numbers, no model_name, epoch seconds, top-level
-// model_remains, extra fields). CodexBar treats current_*_usage_count as REMAINING quota
-// (Sources/CodexBarCore/Providers/MiniMax/MiniMaxUsageFetcher.swift:815,877-885; Tests/CodexBarTests/MiniMaxProviderTests.swift:529-532:
+// ---- Provider response examples ----
+// model_remains, extra fields). the reference client treats current_*_usage_count as REMAINING quota
+// Example payload or rule for this provider's usage response.
 // total 1000 + usage_count 250 => remainingPrompts 250, usedPercent 75). Our source agrees.
 // ---------------------------------------------------------------------------------------------------------------
 const CB_NOW_S = 1_780_282_340;
 const CB_NOW = CB_NOW_S * 1000;
 
-// Payload from CodexBar Tests/CodexBarTests/Fixtures/Providers/MiniMax/token-plan-normal.json (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 const FIXTURE_NORMAL = `{
   "base_resp": { "status_code": 0, "status_msg": "success" },
   "data": {
@@ -208,17 +208,17 @@ const FIXTURE_NORMAL = `{
   }
 }`;
 
-// Payload from CodexBar Tests/CodexBarTests/ProviderQuotaFixtureContractTests.swift:8-22 + Fixtures/Providers/MiniMax/token-plan-normal.json (MIT, (c) Peter Steinberger)
-test("CodexBar fixture token-plan-normal: 96%/99% remaining => 4%/1%, resets at end_time and weekly_end_time", () => {
+// Example payload for this provider's usage response.
+test("fixture token-plan-normal: 96%/99% remaining => 4%/1%, resets at end_time and weekly_end_time", () => {
 	assert.deepEqual(windowsFromPayload(JSON.parse(FIXTURE_NORMAL), CB_NOW), {
 		fiveHour: { usedPercent: 4, resetsAt: 1_780_297_200_000 },
 		weekly: { usedPercent: 1, resetsAt: 1_780_848_000_000 },
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/Fixtures/Providers/MiniMax/token-plan-missing-reset.json (MIT, (c) Peter Steinberger)
-// CodexBar keeps the 25%/40% windows with resetsAt nil; our Windows need a reset to wait for, so there is nothing to save.
-test("CodexBar fixture token-plan-missing-reset: windows without any reset timestamp yield nothing to wait for", () => {
+// Example payload for this provider's usage response.
+// The reference client keeps the 25%/40% windows with resetsAt nil; our Windows need a reset to wait for, so there is nothing to save.
+test("fixture token-plan-missing-reset: windows without any reset timestamp yield nothing to wait for", () => {
 	const payload = JSON.parse(`{
   "base_resp": { "status_code": 0, "status_msg": "success" },
   "data": {
@@ -239,8 +239,8 @@ test("CodexBar fixture token-plan-missing-reset: windows without any reset times
 	assert.equal(windowsFromPayload(payload, CB_NOW), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxTokenPlanChangeTests.swift:753-780 percentBasedRemainsJSON (MIT, (c) Peter Steinberger)
-test("CodexBar percentBasedRemainsJSON (top-level model_remains, remains_time, status fields) => 4% / 1%", () => {
+// Example payload for this provider's usage response.
+test("percentBasedRemainsJSON (top-level model_remains, remains_time, status fields) => 4% / 1%", () => {
 	const payload = JSON.parse(`{
       "model_remains": [
         {
@@ -269,8 +269,8 @@ test("CodexBar percentBasedRemainsJSON (top-level model_remains, remains_time, s
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxWebResponseTests.swift:116-121 usageJSON (MIT, (c) Peter Steinberger)
-test("CodexBar usageJSON (interval only, no weekly fields) => fiveHour 4%, no weekly", () => {
+// Example payload for this provider's usage response.
+test("usageJSON (interval only, no weekly fields) => fiveHour 4%, no weekly", () => {
 	const payload = JSON.parse(`{"model_remains":[{"start_time":1780279200000,"end_time":1780297200000,
     "remains_time":16659830,"model_name":"general","current_interval_total_count":0,
     "current_interval_usage_count":0,"current_interval_status":1,"current_interval_remaining_percent":96}],
@@ -278,8 +278,8 @@ test("CodexBar usageJSON (interval only, no weekly fields) => fiveHour 4%, no we
 	assert.deepEqual(windowsFromPayload(payload, CB_NOW), { fiveHour: { usedPercent: 4, resetsAt: 1_780_297_200_000 } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxCurrentTokenPlanResponseTests.swift:164-203 currentTokenPlanRemainsJSON (MIT, (c) Peter Steinberger)
-test("CodexBar currentTokenPlanRemainsJSON (boosted weekly, excluded video lane) => 0% / 30%", () => {
+// Example payload for this provider's usage response.
+test("currentTokenPlanRemainsJSON (boosted weekly, excluded video lane) => 0% / 30%", () => {
 	const payload = JSON.parse(`{
       "model_remains": [
         {
@@ -326,8 +326,8 @@ test("CodexBar currentTokenPlanRemainsJSON (boosted weekly, excluded video lane)
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxTokenPlanChangeTests.swift:62-110 (video first) (MIT, (c) Peter Steinberger)
-test("CodexBar video-first payload: the general text lane drives fiveHour/weekly, not the first (video) entry", () => {
+// Example payload for this provider's usage response.
+test("video-first payload: the general text lane drives fiveHour/weekly, not the first (video) entry", () => {
 	const payload = JSON.parse(`{
           "base_resp": { "status_code": "0" },
           "model_remains": [
@@ -360,8 +360,8 @@ test("CodexBar video-first payload: the general text lane drives fiveHour/weekly
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxTokenPlanChangeTests.swift:117-161 (plus plan, unavailable video lane) (MIT, (c) Peter Steinberger)
-test("CodexBar plus plan payload: unavailable video lane (status 3, 100%) is ignored", () => {
+// Example payload for this provider's usage response.
+test("plus plan payload: unavailable video lane (status 3, 100%) is ignored", () => {
 	const payload = JSON.parse(`{
           "base_resp": { "status_code": 0, "status_msg": "success" },
           "model_remains": [
@@ -407,8 +407,8 @@ test("CodexBar plus plan payload: unavailable video lane (status 3, 100%) is ign
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxTokenPlanChangeTests.swift:171-232 (boosted interval, unlimited weekly) (MIT, (c) Peter Steinberger)
-test("CodexBar boosted-interval payload with unlimited weekly: only fiveHour (1%), no weekly to wait for", () => {
+// Example payload for this provider's usage response.
+test("boosted-interval payload with unlimited weekly: only fiveHour (1%), no weekly to wait for", () => {
 	const payload = JSON.parse(`{
           "model_remains": [
             {
@@ -453,9 +453,9 @@ test("CodexBar boosted-interval payload with unlimited weekly: only fiveHour (1%
 	assert.deepEqual(windowsFromPayload(payload, 1_780_347_620 * 1000), { fiveHour: { usedPercent: 1, resetsAt: 1_780_365_600_000 } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:505-533 (MIT, (c) Peter Steinberger)
-// Entries WITHOUT model_name are real (legacy coding plan); CodexBar's snapshot still reads the first entry.
-test("CodexBar coding plan remains: nameless entry, usage_count 250 of 1000 is REMAINING => 75% used, reset end_time (not remains_time)", () => {
+// Example payload for this provider's usage response.
+// Entries WITHOUT model_name are real (legacy coding plan); the reference client's snapshot still reads the first entry.
+test("coding plan remains: nameless entry, usage_count 250 of 1000 is REMAINING => 75% used, reset end_time (not remains_time)", () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const payload = JSON.parse(`{
@@ -474,8 +474,8 @@ test("CodexBar coding plan remains: nameless entry, usage_count 250 of 1000 is R
 	assert.deepEqual(windowsFromPayload(payload, start), { fiveHour: { usedPercent: 75, resetsAt: end } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:536-566 (MIT, (c) Peter Steinberger)
-test("CodexBar M2.7-highspeed: usage_count is remaining quota (250/1000 => 75% used)", () => {
+// Example payload for this provider's usage response.
+test("M2.7-highspeed: usage_count is remaining quota (250/1000 => 75% used)", () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const payload = JSON.parse(`{
@@ -495,8 +495,8 @@ test("CodexBar M2.7-highspeed: usage_count is remaining quota (250/1000 => 75% u
 	assert.deepEqual(windowsFromPayload(payload, start), { fiveHour: { usedPercent: 75, resetsAt: end } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:568-606 (MIT, (c) Peter Steinberger)
-test("CodexBar MiniMax-M1 with weekly counts: weekly 5376 remaining of 6000 => 10.4% used, resets at weekly_end_time", () => {
+// Example payload for this provider's usage response.
+test("MiniMax-M1 with weekly counts: weekly 5376 remaining of 6000 => 10.4% used, resets at weekly_end_time", () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const weekStart = start - 2 * 24 * 60 * 60 * 1000;
@@ -523,8 +523,8 @@ test("CodexBar MiniMax-M1 with weekly counts: weekly 5376 remaining of 6000 => 1
 	assert.equal(w.weekly!.resetsAt, weekEnd);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:608-632 (MIT, (c) Peter Steinberger)
-test("CodexBar legacy plan with weekly total 0 / usage 0 and no percent: no weekly window", () => {
+// Example payload for this provider's usage response.
+test("legacy plan with weekly total 0 / usage 0 and no percent: no weekly window", () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const payload = JSON.parse(`{
@@ -544,8 +544,8 @@ test("CodexBar legacy plan with weekly total 0 / usage 0 and no percent: no week
 	assert.deepEqual(windowsFromPayload(payload, start), { fiveHour: { usedPercent: 75, resetsAt: end } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:687-710 (MIT, (c) Peter Steinberger)
-test("CodexBar data wrapper with string counts and string status_code: 14989 of 15000 remaining => 11/15000 used", () => {
+// Example payload for this provider's usage response.
+test("data wrapper with string counts and string status_code: 14989 of 15000 remaining => 11/15000 used", () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const payload = JSON.parse(`{
@@ -569,8 +569,8 @@ test("CodexBar data wrapper with string counts and string status_code: 14989 of 
 	assert.equal(w.weekly, undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:1179-1196 codingPlanJSON (MIT, (c) Peter Steinberger)
-test("CodexBar codingPlanJSON: epoch SECONDS for start/end, remains_time in seconds, 8 of 10 remaining => 20% used", () => {
+// Example payload for this provider's usage response.
+test("codingPlanJSON: epoch SECONDS for start/end, remains_time in seconds, 8 of 10 remaining => 20% used", () => {
 	const payload = JSON.parse(`{
       "base_resp": { "status_code": 0 },
       "data": {
@@ -590,8 +590,8 @@ test("CodexBar codingPlanJSON: epoch SECONDS for start/end, remains_time in seco
 	assert.deepEqual(windowsFromPayload(payload, 1_779_019_300_000), { fiveHour: { usedPercent: 20, resetsAt: 1_779_037_200_000 } });
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxProviderTests.swift:795-830 (MIT, (c) Peter Steinberger)
-test("CodexBar logged-out bodies (status 1004 plain, string \"1004\", inside data wrapper) yield nothing", () => {
+// Example payload for this provider's usage response.
+test("logged-out bodies (status 1004 plain, string \"1004\", inside data wrapper) yield nothing", () => {
 	for (const body of [
 		`{ "base_resp": { "status_code": 1004, "status_msg": "cookie is missing, log in again" } }`,
 		`{ "base_resp": { "status_code": "1004", "status_msg": "login required" } }`,
@@ -599,15 +599,15 @@ test("CodexBar logged-out bodies (status 1004 plain, string \"1004\", inside dat
 	]) assert.equal(windowsFromPayload(JSON.parse(body), CB_NOW), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxAPITokenFetchTests.swift:79-96 and MiniMaxProviderTests.swift:397-402 (MIT, (c) Peter Steinberger)
-test("CodexBar partial/empty bodies: {}, bare model_name without quota fields, empty model_remains => nothing", () => {
+// Example payload for this provider's usage response.
+test("partial/empty bodies: {}, bare model_name without quota fields, empty model_remains => nothing", () => {
 	assert.equal(windowsFromPayload(JSON.parse(`{}`), CB_NOW), undefined);
 	assert.equal(windowsFromPayload(JSON.parse(`{ "base_resp": { "status_code": 0 }, "plan_name": "MiniMax Star", "model_remains": [{"model_name": "abab6.5"}] }`), CB_NOW), undefined);
 	assert.equal(windowsFromPayload(JSON.parse(`{ "data": { "model_remains": [] }, "base_resp": { "status_code": 0 } }`), CB_NOW), undefined);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/MiniMaxAPITokenFetchTests.swift:61-96 (MIT, (c) Peter Steinberger)
-test("CodexBar API-token flow: 401 {} from the global host then the nameless payload on the China host => 75% used", async () => {
+// Example payload for this provider's usage response.
+test("API-token flow: 401 {} from the global host then the nameless payload on the China host => 75% used", async () => {
 	const start = 1_700_000_000_000;
 	const end = start + 5 * 60 * 60 * 1000;
 	const body = `{
@@ -633,5 +633,5 @@ test("CodexBar API-token flow: 401 {} from the global host then the nameless pay
 	]);
 });
 
-// shape inferred, no CodexBar fixture: the 401-on-every-endpoint, thrown-fetch and non-JSON cases above, and the
-// epoch-ms remains_time fallback with a past end_time. CodexBar's rule (MiniMaxUsageFetcher.swift:908-915) is the same.
+// shape inferred, no sample payload: the 401-on-every-endpoint, thrown-fetch and non-JSON cases above, and the
+// Example payload or rule for this provider's usage response.

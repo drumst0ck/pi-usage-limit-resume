@@ -1,5 +1,5 @@
-// Which usage family a Pi model belongs to. A family is one plan with its own reset times; its id is also the
-// `--provider` id passed to CodexBar. The plugin only tracks and waits: it never picks or switches models.
+// Which usage family a Pi model belongs to. A family is one plan with its own reset times.
+// The plugin only tracks and waits: it never picks or switches models.
 import { readFileSync } from "node:fs";
 import type { Family } from "./state.ts";
 
@@ -8,8 +8,6 @@ export interface FamilyConfig {
  piProviders: string[];
  /** Case-insensitive regex tested against the model id; omit to accept every model of those providers. */
  modelPattern?: string;
- /** Provider id passed to `codexbar usage --provider`; defaults to the family id. */
- codexbarId?: string;
  /** The plan is reached with an API key instead of OAuth (Z.ai, Kimi, MiniMax...). A plain API key elsewhere is pay-as-you-go, not a plan. */
  apiKey?: boolean;
 }
@@ -17,16 +15,14 @@ export interface Config { families?: Record<Family, FamilyConfig> }
 
 export const DEFAULT_CONFIG: Config = {
  families: {
-  claude: { piProviders: ["anthropic", "pi-claude-max", "claude-max"], modelPattern: "claude", codexbarId: "claude" },
-  codex: { piProviders: ["openai", "openai-codex"], modelPattern: "gpt|codex", codexbarId: "codex" },
-  gemini: { piProviders: ["google", "google-gemini-cli"], modelPattern: "gemini", codexbarId: "gemini" },
-  zai: { piProviders: ["zai", "zai-coding-cn"], codexbarId: "zai", apiKey: true },
-  kimi: { piProviders: ["kimi-coding"], codexbarId: "kimi", apiKey: true },
-  minimax: { piProviders: ["minimax", "minimax-cn"], codexbarId: "minimax", apiKey: true },
-  copilot: { piProviders: ["github-copilot"], codexbarId: "copilot" },
-  opencodego: { piProviders: ["opencode-go"], codexbarId: "opencodego", apiKey: true },
-  // No native source: its endpoint wants the Google "Hub" client identity. Reachable through CodexBar only.
-  antigravity: { piProviders: ["google-antigravity"], codexbarId: "antigravity" },
+  claude: { piProviders: ["anthropic", "pi-claude-max", "claude-max"], modelPattern: "claude" },
+  codex: { piProviders: ["openai", "openai-codex"], modelPattern: "gpt|codex" },
+  gemini: { piProviders: ["google", "google-gemini-cli"], modelPattern: "gemini" },
+  zai: { piProviders: ["zai", "zai-coding-cn"], apiKey: true },
+  kimi: { piProviders: ["kimi-coding"], apiKey: true },
+  minimax: { piProviders: ["minimax", "minimax-cn"], apiKey: true },
+  copilot: { piProviders: ["github-copilot"] },
+  opencodego: { piProviders: ["opencode-go"], apiKey: true },
  },
 };
 
@@ -39,7 +35,7 @@ function validFamily(id: string, f: any): f is FamilyConfig {
   if (typeof f.modelPattern !== "string") return false;
   try { new RegExp(f.modelPattern, "i"); } catch { return false; }
  }
- return f.codexbarId === undefined || typeof f.codexbarId === "string";
+ return true;
 }
 
 /** User config adds to the defaults; a family with the same id replaces the default one. Invalid families are dropped. */
@@ -63,7 +59,7 @@ export function loadConfig(paths: string[]): Config {
 
 /**
  * Configured families first. Any other model becomes a family named after its Pi provider id, so every OAuth
- * provider is covered (and reaches CodexBar under its own id) without being listed anywhere.
+ * provider is covered without being listed anywhere.
  */
 export function familyResolver(config: Config): (model: any) => Family | undefined {
  const entries = Object.entries(config.families ?? DEFAULT_CONFIG.families!).map(([id, f]) =>

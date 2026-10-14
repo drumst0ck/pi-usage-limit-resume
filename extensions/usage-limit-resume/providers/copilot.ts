@@ -1,4 +1,4 @@
-// Native GitHub Copilot source, mirroring CodexBar's copilot plugin: GET https://api.github.com/copilot_internal/user.
+// Native GitHub Copilot source, mirroring the reference client's copilot plugin: GET https://api.github.com/copilot_internal/user.
 import type { Window, Windows } from "../state.ts";
 import type { NativeSource } from "./types.ts";
 
@@ -8,13 +8,13 @@ const API_VERSION = "2025-04-01";
 interface Snapshot { usedPercent: number }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
-/** CodexBar decodes numbers as Double, Int or numeric String ("500"). */
+/** The reference client decodes numbers as Double, Int or numeric String ("500"). */
 const num = (v: unknown): number | undefined => {
 	if (typeof v === "string" && v.trim() !== "") v = Number(v.trim());
 	return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 };
 
-/** CodexBar's QuotaSnapshot: unlimited, placeholder (zero entitlement + zero remaining) or percent-less snapshots carry no limit. */
+/** The reference client's QuotaSnapshot: unlimited, placeholder (zero entitlement + zero remaining) or percent-less snapshots carry no limit. */
 function snapshot(raw: any): Snapshot | undefined {
 	if (!raw || typeof raw !== "object" || raw.unlimited === true) return undefined;
 	const entitlement = num(raw.entitlement), remaining = num(raw.remaining);
@@ -27,7 +27,7 @@ function snapshot(raw: any): Snapshot | undefined {
 	return { usedPercent: clamp(100 - percentRemaining) };
 }
 
-/** CodexBar's isPlaceholder: an empty or explicit zero-entitlement/zero-remaining snapshot (not unlimited). */
+/** The reference client's isPlaceholder: an empty or explicit zero-entitlement/zero-remaining snapshot (not unlimited). */
 function isPlaceholder(raw: any): boolean {
 	if (!raw || typeof raw !== "object") return true;
 	if (raw.unlimited === true) return false;
@@ -37,7 +37,7 @@ function isPlaceholder(raw: any): boolean {
 }
 
 /**
- * CodexBar's QuotaSnapshots decoding: the known keys win; when one is missing or a placeholder, any other key is
+ * The reference client's QuotaSnapshots decoding: the known keys win; when one is missing or a placeholder, any other key is
  * scanned in order (name has "chat" -> chat; "premium"/"completion"/"code" -> premium); with neither found the
  * first usable unknown key stands in as chat.
  */
@@ -69,7 +69,7 @@ function legacySnapshot(monthly: unknown, limited: unknown): Snapshot | undefine
 	return { usedPercent: clamp(100 - (Math.max(0, left) / total) * 100) };
 }
 
-/** CodexBar's parseQuotaResetDate: ISO 8601, or `YYYY-MM-DD` as UTC midnight. A zone-less timestamp is read as UTC too. */
+/** The reference client's parseQuotaResetDate: ISO 8601, or `YYYY-MM-DD` as UTC midnight. A zone-less timestamp is read as UTC too. */
 function parseReset(value: unknown): number | undefined {
 	if (typeof value !== "string") return undefined;
 	const raw = value.trim();
@@ -88,7 +88,7 @@ export function windowsFromPayload(payload: unknown): Windows | undefined {
 	if (resetsAt === undefined) return undefined;
 	const direct = directSnapshots(root.quota_snapshots);
 	const monthly = root.monthly_quotas ?? {}, limited = root.limited_user_quotas ?? {};
-	// Like CodexBar: a usable direct snapshot wins, the legacy counts (completions = premium) only fill the gaps.
+	// Like the reference client: a usable direct snapshot wins, the legacy counts (completions = premium) only fill the gaps.
 	const premium = snapshot(direct.premium) ?? legacySnapshot(monthly.completions, limited.completions);
 	const chat = snapshot(direct.chat) ?? legacySnapshot(monthly.chat, limited.chat);
 	const used = [premium, chat].filter((s): s is Snapshot => !!s).map(s => s.usedPercent);
@@ -100,9 +100,9 @@ export function windowsFromPayload(payload: unknown): Windows | undefined {
 const clean = (v: string | undefined) => (v && !/[\r\n\0]/.test(v.trim()) ? v.trim() : undefined);
 
 /**
- * UNVERIFIED: CodexBar sends the GitHub OAuth token (`token <oauth>`), not the short-lived Copilot token. Whether
+ * UNVERIFIED: the reference client sends the GitHub OAuth token (`token <oauth>`), not the short-lived Copilot token. Whether
  * Pi's stored "github-copilot" credential is the OAuth token or the Copilot token is not confirmed; if it is the
- * Copilot token the endpoint answers 401/403, we return undefined and the extension falls through to CodexBar.
+ * Copilot token the endpoint answers 401/403, we return undefined and the extension falls back to the probe.
  * No VS Code / copilot-chat identity headers are sent (we do not impersonate another client). github.com only.
  */
 export const source: NativeSource = async ctx => {

@@ -1,4 +1,4 @@
-// Native z.ai / GLM Coding Plan source, mirroring CodexBar's zai plugin: GET /api/monitor/usage/quota/limit.
+// Native z.ai / GLM Coding Plan source, mirroring the reference client's zai plugin: GET /api/monitor/usage/quota/limit.
 import type { Window, Windows } from "../state.ts";
 import type { NativeSource, SourceContext } from "./types.ts";
 
@@ -6,7 +6,7 @@ const GLOBAL_HOST = "api.z.ai";
 const CN_HOST = "open.bigmodel.cn";
 const QUOTA_PATH = "/api/monitor/usage/quota/limit";
 const LIMIT_TYPES = new Set(["TOKENS_LIMIT", "CREDIT_LIMIT", "TIME_LIMIT"]);
-/** z.ai window unit codes -> minutes (CodexBar: 1 day, 3 hour, 5 minute, 6 week). */
+/** z.ai window unit codes -> minutes (the reference client: 1 day, 3 hour, 5 minute, 6 week). */
 const UNIT_MINUTES: Record<number, number> = { 1: 1440, 3: 60, 5: 1, 6: 10080 };
 const MINUTE = 60_000;
 const CN_KEY_VARS = ["BIGMODEL_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY", "GLM_API_KEY"];
@@ -28,7 +28,7 @@ function usedPercent(raw: any): number {
 
 /** Slot by window length. TIME_LIMIT (MCP) always takes the monthly lane. */
 function slot(raw: any): keyof Windows | undefined {
-	// CodexBar keeps TIME_LIMIT in its own MCP lane, never in the Coding Plan session/weekly window.
+	// the reference client keeps TIME_LIMIT in its own MCP lane, never in the Coding Plan session/weekly window.
 	if (raw.type === "TIME_LIMIT") return "monthly";
 	const unit = UNIT_MINUTES[raw.unit];
 	const minutes = raw.number > 0 && unit ? raw.number * unit : undefined;

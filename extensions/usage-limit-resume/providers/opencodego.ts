@@ -1,12 +1,12 @@
-// OpenCode Go rolling/weekly/monthly windows, as CodexBar reads them: GET /zen/go/v1/usage with the OpenCode API key.
-// CodexBar's web path (browser cookies) and local-SQLite estimate are intentionally not implemented.
+// OpenCode Go rolling/weekly/monthly windows, as the reference client reads them: GET /zen/go/v1/usage with the OpenCode API key.
+// The reference client's web path (browser cookies) and local-SQLite estimate are intentionally not implemented.
 import type { Window, Windows } from "../state.ts";
 import type { NativeSource } from "./types.ts";
 
 export const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 const TIMEOUT_MS = 5_000;
 
-// Key spellings, in CodexBar's order (OpenCodeWebParsing.swift).
+// Example payload or rule for this provider's usage response.
 const PERCENT_KEYS = ["usagePercent", "usedPercent", "percentUsed", "percent", "usage_percent", "used_percent", "utilization", "utilizationPercent", "utilization_percent", "usage"];
 const RESET_IN_KEYS = ["resetInSec", "resetInSeconds", "resetSeconds", "reset_sec", "reset_in_sec", "resetsInSec", "resetsInSeconds", "resetIn", "resetSec"];
 const RESET_AT_KEYS = ["resetAt", "resetsAt", "reset_at", "resets_at", "nextReset", "next_reset", "renewAt", "renew_at"];
@@ -49,7 +49,7 @@ function toWindow(dict: any, nowMs: number): Window | undefined {
 	return { usedPercent: Math.min(100, Math.max(0, used)), resetsAt };
 }
 
-/** rolling => fiveHour (required, as in CodexBar), weekly => weekly, monthly => monthly; percent is 0-100 USED. */
+/** rolling => fiveHour (required, as in the reference client), weekly => weekly, monthly => monthly; percent is 0-100 USED. */
 export function windowsFromPayload(payload: any, nowMs: number): Windows | undefined {
 	const usage = payload?.usage;
 	const fiveHour = toWindow(usage?.rolling, nowMs);
@@ -61,7 +61,7 @@ export function windowsFromPayload(payload: any, nowMs: number): Windows | undef
 	return out;
 }
 
-/** Pi's own credential for the `opencode-go` provider first, then CodexBar's documented OPENCODE_API_KEY. */
+/** Pi's own credential for the `opencode-go` provider first, then the reference client's documented OPENCODE_API_KEY. */
 export const source: NativeSource = async (ctx) => {
 	try {
 		const key = (await ctx.apiKey("opencode-go"))?.trim() || ctx.env.OPENCODE_API_KEY?.trim();

@@ -6,7 +6,7 @@ const NOW = 1_800_000_000_000;
 const H = 3600_000;
 const KEY = "sk-test-secret-123";
 
-// Shape taken from CodexBar's zai plugin: unit 3 = hours, 6 = weeks, 5 = minutes; nextResetTime in epoch ms.
+// Shape taken from the reference client's zai plugin: unit 3 = hours, 6 = weeks, 5 = minutes; nextResetTime in epoch ms.
 const payload = (limits: unknown[], extra: Record<string, unknown> = {}) => ({ code: 200, success: true, msg: "ok", data: { limits, planName: "Pro", ...extra } });
 const session = { type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 12, nextResetTime: NOW + 2 * H };
 const week = { type: "TOKENS_LIMIT", unit: 6, number: 1, percentage: 40, nextResetTime: NOW + 100 * H };
@@ -144,11 +144,11 @@ test("source: HTTP errors, thrown fetch and bad bodies resolve to undefined", as
 	assert.equal(await source(bad.ctx), undefined);
 });
 
-// ---- Ported CodexBar fixtures (payloads copied verbatim, parsed with JSON.parse) ----
+// ---- Provider response examples ----
 const json = (s: string) => JSON.parse(s);
 
-// Payload from CodexBar TestsPlugin/ZaiPluginResetTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: reported August payload keeps the 5h cadence and exact epoch, MCP lane is monthly", () => {
+// Example payload for this provider's usage response.
+test("reported August payload keeps the 5h cadence and exact epoch, MCP lane is monthly", () => {
 	const body = `
         {"code":200,"success":true,"data":{"level":"pro","limits":[
           {"type":"TIME_LIMIT","unit":5,"number":1,"usage":1000,"currentValue":0,"remaining":1000,
@@ -164,7 +164,7 @@ test("codexbar: reported August payload keeps the 5h cadence and exact epoch, MC
 	});
 });
 
-// Payload from CodexBar TestsPlugin/ZaiPluginResetTests.swift (MIT, (c) Peter Steinberger); built by its fetch(type:resetOffset:) helper
+// Example payload for this provider's usage response.
 for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
 	const NOW_S = 1_800_000_000;
 	const lim = (offsetS: number) => json(`
@@ -173,7 +173,7 @@ for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
           {"type":"${type}","unit":6,"number":1,"percentage":9,"nextResetTime":${(NOW_S + 6 * 86400) * 1000}},
           {"type":"TIME_LIMIT","unit":5,"number":1,"percentage":22,"nextResetTime":${(NOW_S + 20 * 86400) * 1000}}
         ]}}`);
-	test(`codexbar: ${type} five-hour resets beyond 5h+1min are omitted, other lanes kept`, () => {
+	test(`${type} five-hour resets beyond 5h+1min are omitted, other lanes kept`, () => {
 		for (const off of [36000, 18060.001]) {
 			assert.deepEqual(windowsFromPayload(lim(off), NOW_S * 1000), {
 				weekly: { usedPercent: 9, resetsAt: (NOW_S + 6 * 86400) * 1000 },
@@ -181,7 +181,7 @@ for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
 			});
 		}
 	});
-	test(`codexbar: ${type} valid five-hour resets keep their exact timestamp`, () => {
+	test(`${type} valid five-hour resets keep their exact timestamp`, () => {
 		for (const off of [-60, 0, 3600, 18000, 18060]) {
 			const w = windowsFromPayload(lim(off), NOW_S * 1000);
 			assert.deepEqual(w?.fiveHour, { usedPercent: 25, resetsAt: (NOW_S + off) * 1000 }, String(off));
@@ -189,8 +189,8 @@ for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
 	});
 }
 
-// Payload from CodexBar Tests/CodexBarTests/ProviderPluginDetailsParityTests.swift zaiQuota (MIT, (c) Peter Steinberger)
-test("codexbar: zaiQuota golden (5h, weekly, MCP counts; MCP has no reset)", () => {
+// Example payload for this provider's usage response.
+test("zaiQuota golden (5h, weekly, MCP counts; MCP has no reset)", () => {
 	const body = `
     {"code":200,"msg":"success","success":true,"data":{"planName":"Pro","limits":[
       {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":25,"nextResetTime":1785816000000},
@@ -199,19 +199,19 @@ test("codexbar: zaiQuota golden (5h, weekly, MCP counts; MCP has no reset)", () 
        "percentage":22,"usageDetails":[{"modelCode":"search-prime","usage":210},
        {"modelCode":"web-reader","usage":14}]}
     ]}}`;
-	// CodexBar also reports the MCP lane (22.4%) without a reset; our Windows need resetsAt, so that lane is dropped.
+	// the reference client also reports the MCP lane (22.4%) without a reset; our Windows need resetsAt, so that lane is dropped.
 	assert.deepEqual(windowsFromPayload(json(body), 1_785_816_000_000 - H), {
 		fiveHour: { usedPercent: 25, resetsAt: 1785816000000 },
 		weekly: { usedPercent: 9, resetsAt: 1786291200000 },
 	});
-	// Same MCP entry with a reset: counts win over percentage (224/1000 = 22.4, CodexBar asserts 22.400000000000002).
+	// Same MCP entry with a reset: counts win over percentage (224/1000 = 22.4, the reference client asserts 22.400000000000002).
 	const withReset = json(body);
 	withReset.data.limits[2].nextResetTime = 1788000000000;
 	assert.equal(windowsFromPayload(withReset, 1_785_816_000_000 - H)?.monthly?.usedPercent, 22.400000000000002);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/ProviderPluginDetailsParityTests.swift zaiCreditQuota (MIT, (c) Peter Steinberger)
-test("codexbar: zaiCreditQuota golden (CREDIT_LIMIT with ms-precision resets)", () => {
+// Example payload for this provider's usage response.
+test("zaiCreditQuota golden (CREDIT_LIMIT with ms-precision resets)", () => {
 	const body = `
     {"code":200,"msg":"success","success":true,"data":{"level":"lite","limits":[
       {"type":"CREDIT_LIMIT","unit":3,"number":5,"usage":2000,"currentValue":100,"remaining":1900,
@@ -225,9 +225,9 @@ test("codexbar: zaiCreditQuota golden (CREDIT_LIMIT with ms-precision resets)", 
 	});
 });
 
-// Payload from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
+// Example payload for this provider's usage response.
 for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
-	test(`codexbar: ${type} rolling 30-day limit is the monthly lane`, () => {
+	test(`${type} rolling 30-day limit is the monthly lane`, () => {
 		const body = `
         {"code":200,"msg":"success","success":true,"data":{"limits":[
           {"type":"${type}","unit":1,"number":30,"percentage":50,"nextResetTime":1787112000000}
@@ -236,8 +236,8 @@ for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT"]) {
 	});
 }
 
-// Payload from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift explicitTimeLimitFixture (MIT, (c) Peter Steinberger)
-test("codexbar: TIME_LIMIT with an explicit 5h duration stays the MCP lane, never the session lane", () => {
+// Example payload for this provider's usage response.
+test("TIME_LIMIT with an explicit 5h duration stays the MCP lane, never the session lane", () => {
 	const body = `
     {"code":200,"msg":"success","success":true,"data":{"limits":[
       {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":25,"nextResetTime":1785816000000},
@@ -248,14 +248,14 @@ test("codexbar: TIME_LIMIT with an explicit 5h duration stays the MCP lane, neve
 		fiveHour: { usedPercent: 25, resetsAt: 1785816000000 },
 		monthly: { usedPercent: 22, resetsAt: 1785816000000 },
 	});
-	// shape inferred, no CodexBar fixture: a busier MCP lane must not override the session percentage
+	// shape inferred, no sample payload: a busier MCP lane must not override the session percentage
 	const busy = json(body);
 	busy.data.limits[1].percentage = 99;
 	assert.equal(windowsFromPayload(busy, now)?.fiveHour?.usedPercent, 25);
 });
 
-// Payload from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift unknownTimeLimitFixture (MIT, (c) Peter Steinberger)
-test("codexbar: TIME_LIMIT with unknown unit (0) keeps the session lane and puts MCP in monthly", () => {
+// Example payload for this provider's usage response.
+test("TIME_LIMIT with unknown unit (0) keeps the session lane and puts MCP in monthly", () => {
 	const body = `
     {"code":200,"msg":"success","success":true,"data":{"limits":[
       {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":25,"nextResetTime":1785816000000},
@@ -267,16 +267,16 @@ test("codexbar: TIME_LIMIT with unknown unit (0) keeps the session lane and puts
 	});
 });
 
-// Payloads from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: empty and unrecognized limits never fabricate unused quota", () => {
+// Example payload for this provider's usage response.
+test("empty and unrecognized limits never fabricate unused quota", () => {
 	for (const limits of ["", `{"type":"FUTURE_LIMIT","unit":3,"number":5,"percentage":40}`, `{"type":"FUTURE_POINTS_POOL","pointsRemaining":800}`]) {
 		const body = `{"code":200,"success":true,"data":{"planName":"Pro","limits":[${limits}]}}`;
 		assert.equal(windowsFromPayload(json(body), 1_785_816_000_000), undefined, limits);
 	}
 });
 
-// Payloads from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: explicit zero usage without a reset cannot be scheduled (CodexBar shows 0%, we have no resetsAt)", () => {
+// Example payload for this provider's usage response.
+test("explicit zero usage without a reset cannot be scheduled ", () => {
 	for (const type of ["TOKENS_LIMIT", "CREDIT_LIMIT", "TIME_LIMIT"]) {
 		const body = `{"code":200,"success":true,"data":{"limits":[{"type":"${type}","unit":3,"number":5,"percentage":0}]}}`;
 		assert.equal(windowsFromPayload(json(body), 1_785_816_000_000), undefined, type);
@@ -286,8 +286,8 @@ test("codexbar: explicit zero usage without a reset cannot be scheduled (CodexBa
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: unknown extra limit does not hide the recognized one; pool-only plus MCP without reset is empty", () => {
+// Example payload for this provider's usage response.
+test("unknown extra limit does not hide the recognized one; pool-only plus MCP without reset is empty", () => {
 	const mixed = `
         {"code":200,"success":true,"data":{"limits":[
           {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":25,"nextResetTime":1785819600000},
@@ -299,11 +299,11 @@ test("codexbar: unknown extra limit does not hide the recognized one; pool-only 
           {"type":"FUTURE_POINTS_POOL","pointsRemaining":800},
           {"type":"TIME_LIMIT","unit":5,"number":1,"percentage":25}
         ]}}`;
-	assert.equal(windowsFromPayload(json(poolPlusMcp), 1_785_816_000_000), undefined); // CodexBar shows MCP 25%, no reset to schedule
+	assert.equal(windowsFromPayload(json(poolPlusMcp), 1_785_816_000_000), undefined); // the reference client shows MCP 25%, no reset to schedule
 });
 
-// Payloads from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: unsupported quota shapes yield no windows (CodexBar throws with Usage Dashboard guidance)", () => {
+// Example payload for this provider's usage response.
+test("unsupported quota shapes yield no windows (the reference client throws with Usage Dashboard guidance)", () => {
 	for (const data of [
 		`{"pointsPool":{"remaining":800}}`,
 		`{"limits":[{"unit":3,"number":5,"percentage":25}]}`,
@@ -314,8 +314,8 @@ test("codexbar: unsupported quota shapes yield no windows (CodexBar throws with 
 	}
 });
 
-// Payload from CodexBar Tests/CodexBarTests/ZaiProviderTests.swift (MIT, (c) Peter Steinberger)
-test("codexbar: quota fixture plus HTTP failure bodies through source() never throw and expose no key", async () => {
+// Example payload for this provider's usage response.
+test("quota fixture plus HTTP failure bodies through source() never throw and expose no key", async () => {
 	const quota = `{"code":200,"msg":"success","success":true,"data":{"planName":"Pro","limits":[
       {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":25,"nextResetTime":${NOW + H}},
       {"type":"TOKENS_LIMIT","unit":6,"number":1,"percentage":9,"nextResetTime":${NOW + 100 * H}}]}}`;
@@ -323,6 +323,6 @@ test("codexbar: quota fixture plus HTTP failure bodies through source() never th
 	const w = await source(t.ctx);
 	assert.deepEqual(w, { fiveHour: { usedPercent: 25, resetsAt: NOW + H }, weekly: { usedPercent: 9, resetsAt: NOW + 100 * H } });
 	assert.ok(!JSON.stringify(w).includes(KEY));
-	// shape inferred, no CodexBar fixture: error envelope {code:401,...} with HTTP 200
+	// shape inferred, no sample payload: error envelope {code:401,...} with HTTP 200
 	assert.equal(await source(ctx({ key: KEY, body: json(`{"code":401,"msg":"token expired","success":false}`) }).ctx), undefined);
 });

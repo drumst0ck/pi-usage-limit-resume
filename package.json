@@ -1,6 +1,6 @@
 {
   "name": "pi-usage-limit-resume",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension: saves when each provider's usage window resets (5h, weekly, monthly) and continues your task when an exhausted limit resets.",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,8 @@
     "pi-coding-agent",
     "usage-limit",
     "rate-limit",
-    "codexbar"
+    "reset",
+    "quota"
   ],
   "pi": {
     "extensions": [

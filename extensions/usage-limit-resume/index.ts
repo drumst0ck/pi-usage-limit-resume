@@ -5,7 +5,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_CLI_TIMEOUT_MS, claudeCliWindows, runClaudeCli } from "./claude-cli.ts";
-import { CODEXBAR_TIMEOUT_MS, codexbarReset, codexbarWindows, runCodexbar } from "./codexbar.ts";
 import { fetchCodexWindows, readCodexCliAuth } from "./codex-usage.ts";
 import { familyResolver, loadConfig, usesPlan, type Config } from "./families.ts";
 import { headerWindows, isUsageLimitError, parseResetHeaders, parseResetTime, resetFromWindows } from "./parse.ts";
@@ -21,6 +20,7 @@ const REFRESH_MS = 5 * 60_000;
 const CLAUDE_CLI_REFRESH_MS = 15 * 60_000;
 const HEADER_SAVE_MS = 30_000;
 const LOOKUP_TIMEOUT_MS = 3_000;
+const NATIVE_TIMEOUT_MS = 15_000;
 const MAX_WAIT_MS = 8 * 24 * 3600_000;
 const MAX_CONSECUTIVE = 12;
 const MARGIN_MS = 90_000;
@@ -30,7 +30,7 @@ const RESUME_PROMPT = "Provider capacity is available. Continue exactly where yo
 const lastAssistant = (messages: any[]): any => [...messages].reverse().find(m => m?.role === "assistant");
 export interface Options {
  env?: NodeJS.ProcessEnv; argv?: string[]; config?: Config; store?: SharedState; fetch?: typeof fetch;
- claudeCli?: () => Promise<string | undefined>; nativeSources?: Record<Family, NativeSource>; codexbar?: (id: string) => Promise<string | undefined>;
+ claudeCli?: () => Promise<string | undefined>; nativeSources?: Record<Family, NativeSource>;
 }
 
 export default function (pi: ExtensionAPI, options: Options = {}) {
@@ -43,7 +43,6 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  ]);
  const store = options.store ?? new SharedState(env.PI_USAGE_LIMIT_STATE_DIR ?? join(agentHome, "usage-limit-resume-state"));
  const useClaudeCli = env.PI_USAGE_LIMIT_CLAUDE_CLI !== "0";
- const useCodexbar = env.PI_USAGE_LIMIT_CODEXBAR !== "0";
 
  // A Pi started with `--mode rpc` is driven by a host (a subagent runner, an IDE) that owns its own idle watchdog and
  // cannot be told that we are waiting. Holding its turn would get it killed as stalled, so such sessions only record
@@ -53,7 +52,6 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  const familyOf = familyResolver(config);
  const plan = (ctx: any, model: any) => usesPlan(config, ctx, model, familyOf);
  const nativeSources = options.nativeSources ?? defaultNativeSources;
- const codexbarId = (f: Family) => config.families?.[f]?.codexbarId ?? f;
  const fetchFn = () => options.fetch ?? fetch;
  // Providers actually used in this session: the only ones whose windows are refreshed and shown.
  const usedFamilies = new Set<Family>();
@@ -150,7 +148,6 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   }
   return undefined;
  };
- const codexbarRaw = (f: Family) => withTimeout<string | undefined>(Promise.resolve((options.codexbar ?? runCodexbar)(codexbarId(f))), undefined, CODEXBAR_TIMEOUT_MS);
  // Fire and forget: the user's message never waits on any of this.
  const refreshWindows = (ctx: any) => {
   for (const f of usedFamilies) {
@@ -158,7 +155,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    refreshing.add(f);
    void (async () => {
     try {
-     const w = (await nativeWindows(f, ctx)) ?? (useCodexbar ? codexbarWindows(await codexbarRaw(f)) : undefined);
+     const w = await nativeWindows(f, ctx);
      w ? store.setWindows(f, w) : store.touch(f);
     } catch { /* Best effort. */ } finally { refreshing.delete(f); }
    })();
@@ -210,29 +207,23 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   const f = familyOf(ctx.model);
   if (!f || !plan(ctx, ctx.model)) return;
   usedFamilies.add(f);
-  // Reset time: headers of this response, the error text, windows seen earlier, then the provider's own source, then CodexBar.
+  // Reset time: headers of this response, the error text, windows seen earlier, then the provider's own source.
   const fromHeaders = parseResetHeaders(limitHeaders, new Date(Date.now()));
   const fromMessage = parseResetTime(err, new Date(Date.now()));
   const fromCache = fromHeaders || fromMessage ? undefined : parseResetHeaders(lastHeaders.get(f), new Date(Date.now()));
-  let fromNative: number | undefined, fromBar: number | undefined;
+  let fromNative: number | undefined;
   if (!fromHeaders && !fromMessage && !fromCache) {
-   const w = await withTimeout<Windows | undefined>(nativeWindows(f, ctx), undefined, CODEXBAR_TIMEOUT_MS);
+   const w = await withTimeout<Windows | undefined>(nativeWindows(f, ctx), undefined, NATIVE_TIMEOUT_MS);
    if (w) { store.setWindows(f, w); fromNative = resetFromWindows(w, Date.now()); }
   }
-  if (useCodexbar && !fromHeaders && !fromMessage && !fromCache && !fromNative) {
-   const out = await codexbarRaw(f);
-   fromBar = codexbarReset(out, Date.now());
-   const w = codexbarWindows(out);
-   if (w) store.setWindows(f, w);
-  }
-  const reset = fromHeaders ?? fromMessage ?? fromCache ?? fromNative ?? fromBar;
+  const reset = fromHeaders ?? fromMessage ?? fromCache ?? fromNative;
   const wait = Math.max(reset ? reset - Date.now() + MARGIN_MS : PROBE_MS[Math.min(attempts, PROBE_MS.length - 1)], 30_000);
   store.limit(f, Date.now() + wait);
   try {
    store.record({
     at: Date.now(), family: f, model: modelRef(ctx.model), resetAt: Date.now() + wait, error: err.slice(0, 500),
     source: fromHeaders ? "headers" : fromMessage ? "message" : fromCache ? "headers-cache"
-     : fromNative ? (f === "claude" ? "claude-cli" : f === "codex" ? "usage-endpoint" : "native") : fromBar ? "codexbar" : "probe",
+     : fromNative ? (f === "claude" ? "claude-cli" : f === "codex" ? "usage-endpoint" : "native") : "probe",
     headers: Object.fromEntries(Object.entries(limitHeaders ?? lastHeaders.get(f) ?? {}).filter(([k]) => /reset|retry|utiliz|used|status|limit/i.test(k))),
    });
   } catch { /* Diagnostics must never break the wait. */ }

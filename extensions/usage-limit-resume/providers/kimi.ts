@@ -1,5 +1,5 @@
-// Kimi Code 5h/weekly/monthly windows, as CodexBar reads them: GET /coding/v1/usages with the Kimi Code API key.
-// The Kimi CLI credential file (~/.kimi-code/credentials/kimi-code.json) is intentionally not used: CodexBar sends
+// Kimi Code 5h/weekly/monthly windows, as the reference client reads them: GET /coding/v1/usages with the Kimi Code API key.
+// The Kimi CLI credential file (~/.kimi-code/credentials/kimi-code.json) is intentionally not used: the reference client sends
 // device-identity headers with it, it is China-region only and its tokens are short-lived and rotate on refresh.
 import type { Window, Windows } from "../state.ts";
 import type { NativeSource } from "./types.ts";
@@ -41,7 +41,7 @@ function resolve(pool: Window | undefined, counts: Window | undefined, sameDurat
 
 const UNIT_MINUTES: Record<string, number> = { TIME_UNIT_MINUTE: 1, TIME_UNIT_HOUR: 60, TIME_UNIT_DAY: 1440 };
 
-/** CodexBar lets counts override the 5h ratio only when their window is 300 minutes (an absent window is assumed 300). */
+/** The reference client lets counts override the 5h ratio only when their window is 300 minutes (an absent window is assumed 300). */
 function isFiveHourWindow(window: any): boolean {
 	if (window == null) return true;
 	const unit = UNIT_MINUTES[window.timeUnit], duration = Number(window.duration);
@@ -61,7 +61,7 @@ export function windowsFromPayload(payload: any): Windows | undefined {
 	return out.fiveHour || out.weekly || out.monthly ? out : undefined;
 }
 
-/** Pi's own credential for the `kimi-coding` provider first, then CodexBar's documented KIMI_CODE_API_KEY. */
+/** Pi's own credential for the `kimi-coding` provider first, then the reference client's documented KIMI_CODE_API_KEY. */
 export const source: NativeSource = async (ctx) => {
 	try {
 		const key = (await ctx.apiKey("kimi-coding"))?.trim() || ctx.env.KIMI_CODE_API_KEY?.trim();

@@ -10,9 +10,9 @@ const tmp = (t: any) => { const d = mkdtempSync(join(tmpdir(), 'ulr-config-')); 
 test('user config outside the package is merged over the packaged one and the defaults', t => {
  const d = tmp(t);
  writeFileSync(join(d, 'pkg.json'), JSON.stringify({ families: { poe: { piProviders: ['poe'], apiKey: true } } }));
- writeFileSync(join(d, 'user.json'), JSON.stringify({ families: { mycloud: { piProviders: ['my-pi'], codexbarId: 'x' }, poe: { piProviders: ['poe2'] } } }));
+ writeFileSync(join(d, 'user.json'), JSON.stringify({ families: { mycloud: { piProviders: ['my-pi'] }, poe: { piProviders: ['poe2'] } } }));
  const c = loadConfig([join(d, 'pkg.json'), join(d, 'user.json')]);
- assert.deepEqual(c.families!.mycloud, { piProviders: ['my-pi'], codexbarId: 'x' });
+ assert.deepEqual(c.families!.mycloud, { piProviders: ['my-pi'] });
  assert.deepEqual(c.families!.poe, { piProviders: ['poe2'] });
  assert.ok(c.families!.claude);
 });

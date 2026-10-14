@@ -18,7 +18,7 @@ export function accountIdFromToken(token: string): string | undefined {
 }
 
 /**
- * The Codex CLI login, read-only, as CodexBar does: access token plus account id.
+ * The Codex CLI login, read-only: access token plus account id.
  * Refused when group/others can read the file. Never refreshed and never written: renewing a rotating
  * refresh token behind the CLI's back could log it out.
  */
