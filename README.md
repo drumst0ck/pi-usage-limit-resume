@@ -46,6 +46,7 @@ Then restart Pi or run `/reload`. Check it is loaded with `pi list`. Remove it w
 2. **Holds the turn when a limit is hit** and tells you in the chat which provider is exhausted and when it resets.
    When the time comes it tells the agent to carry on exactly where it stopped. It waits on the same model.
 3. **Holds your next message before wasting a request** if a saved window is already at 100%.
+4. **Releases a stale cooldown by itself.** Before holding a message, and every 3 minutes while waiting, it asks the provider for fresh windows; if none is exhausted (for example you upgraded your plan, or a window reset early) it clears the cooldown and continues.
 
 Details:
 
@@ -62,7 +63,7 @@ Details:
 |---|---|
 | `/limit-resume status` | Shows whether it is waiting, and the saved 5h, weekly and monthly usage and reset time of each provider. |
 | `/limit-resume now` | Stops waiting and retries immediately. When nothing is being waited on, it sends the resume prompt. |
-| `/limit-resume cancel` | Stops waiting and aborts the held turn. |
+| `/limit-resume cancel` | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. A new limit error waits again. |
 
 ## How the reset time is found
 
@@ -171,7 +172,7 @@ Everything lives in the state directory as small JSON files: cooldowns, saved wi
 | The wait looks wrong | Read `last-limit.json` and look at `source` and `resetAt`. |
 | It waits too long | `/limit-resume status`, then `/limit-resume now` or `cancel`. |
 | Nothing is saved for a provider | Use that provider once with a plan login, then run `/limit-resume status`. Providers without a native source only learn windows from response headers. |
-| A stale cooldown | Delete the `cooldown-<family>-*.json` files from the state directory. |
+| A stale cooldown | Normally released automatically when the provider reports capacity. If it has no usage source, delete the `cooldown-<family>-*.json` files from the state directory. |
 | Config is ignored | Check the file is valid JSON and the family id is lowercase. |
 
 ## Development

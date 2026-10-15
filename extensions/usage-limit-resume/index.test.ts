@@ -96,7 +96,7 @@ test('it never switches models, even when another provider has capacity', async 
 });
 test('with no reset known it probes after 10 minutes and continues', async t => {
  const h = harness(t); const p = h.error(); await settle();
- assert.equal(h.waiting().ms, 600_000); h.advance(601_000); assert.equal((await p)?.continue, true);
+ assert.ok(h.waiting().ms <= 60_000); h.advance(601_000); assert.equal((await p)?.continue, true);
 });
 test('a weekly reset days away is waited out', async t => {
  const h = harness(t); await h.headers(3 * 86400);
@@ -131,9 +131,22 @@ test('abort while waiting releases the boundary and cancels the timer', async t 
  const h = harness(t); const p = h.error(); await settle(); h.controller.abort();
  assert.equal(await p, undefined); assert.ok(h.timers.every(x => x.cancelled)); assert.equal(h.sent.length, 0);
 });
-test('cancel stops the wait but keeps the saved limit', async t => {
+test('cancel stops the wait AND drops the saved limit, so the next message is not held again', async t => {
  const h = harness(t); const p = h.error(); await settle(); await h.commands['limit-resume'].handler('cancel', h.ctx);
- assert.equal(await p, undefined); assert.ok(h.store.cooldown('claude') > Date.now()); assert.ok(h.timers.every(x => x.cancelled));
+ assert.equal(await p, undefined); assert.equal(h.store.cooldown('claude'), 0); assert.ok(h.timers.every(x => x.cancelled));
+ const c = h.child(); await c.handlers.before_agent_start({}, c.ctx);
+ assert.equal(c.abortCalls, 0); assert.equal(c.messages.length, 0);
+});
+test('cancel is not undone by a saved exhausted window of the same reset, but a later limit waits again', async t => {
+ const reset = Date.now() + 3 * 3600_000;
+ const h = harness(t); h.store.setWindows('claude', { fiveHour: { usedPercent: 100, resetsAt: reset } });
+ const p = h.handlers.before_agent_start({}, h.ctx); await settle();
+ await h.commands['limit-resume'].handler('cancel', h.ctx); await p;
+ await h.handlers.before_agent_start({}, h.ctx);
+ assert.equal(h.store.cooldown('claude'), 0);
+ const next = new AbortController(); h.ctx.signal = next.signal;
+ await h.headers(3600); const q = h.error(); await settle();
+ assert.ok(h.store.cooldown('claude') > Date.now()); next.abort(); await q;
 });
 test('now ends the wait once, without clearing the saved limit', async t => {
  const h = harness(t); const p = h.error(); await settle();
@@ -467,4 +480,45 @@ test('the first Claude limit with nothing saved reads /usage from the CLI', asyn
 test('PI_USAGE_LIMIT_CLAUDE_CLI=0 never runs the claude CLI', async t => {
  let n = 0; const h = harness(t, { refresh: true, env: { PI_USAGE_LIMIT_CLAUDE_CLI: '0' }, claudeCli: async () => { n++; return cliText; } });
  await h.handlers.before_agent_start({}, h.ctx); await settle(); const done = await h.hit(); await settle(); assert.equal(n, 0); await done();
+});
+
+// ---------------------------------------------------------------- stale cooldown after a plan upgrade
+const healthy = () => ({ fiveHour: { usedPercent: 0, resetsAt: Date.now() + 5 * 3600_000 }, weekly: { usedPercent: 0, resetsAt: Date.now() + 86400_000 } });
+test('a saved cooldown is released at once when the provider now reports capacity (plan upgrade)', async t => {
+ const h = harness(t, { nativeSources: { claude: async () => healthy() } });
+ h.store.limit('claude', Date.now() + 3600_000);
+ await h.handlers.before_agent_start({}, h.ctx);
+ assert.equal(h.store.cooldown('claude'), 0); assert.equal(h.abortCalls, 0); assert.equal(h.messages.length, 0);
+});
+test('a saved cooldown still holds when the provider reports the window exhausted', async t => {
+ const reset = Date.now() + 3600_000;
+ const h = harness(t, { nativeSources: { claude: async () => ({ fiveHour: { usedPercent: 100, resetsAt: reset } }) } });
+ h.store.limit('claude', reset);
+ const p = h.handlers.before_agent_start({}, h.ctx); await settle();
+ let settled = false; p.then(() => settled = true); await settle();
+ assert.equal(settled, false); assert.ok(h.store.cooldown('claude') > Date.now()); assert.equal(h.messages.length, 1);
+});
+test('a saved cooldown still holds when the provider gives no windows at all', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
+ const p = h.handlers.before_agent_start({}, h.ctx); await settle();
+ let settled = false; p.then(() => settled = true); await settle();
+ assert.equal(settled, false); assert.ok(h.store.cooldown('claude') > Date.now());
+});
+test('while waiting, a plan upgrade is noticed and the task continues without waiting for the old reset', async t => {
+ let up = false;
+ const h = harness(t, { nativeSources: { claude: async () => up ? healthy() : { fiveHour: { usedPercent: 100, resetsAt: Date.now() + 3 * 3600_000 } } } });
+ await h.headers(3 * 3600); const p = h.error(); await settle();
+ up = true; h.advance(60_000); await settle(); h.advance(60_000); await settle(); h.advance(120_000); await settle();
+ const r = await p;
+ assert.equal(r.continue, true); assert.equal(h.store.cooldown('claude'), 0);
+});
+test('the wait ticks against the wall clock, so a machine that slept past the reset resumes at the next tick', async t => {
+ const h = harness(t); await h.headers(3600); const p = h.error(); await settle();
+ assert.ok(h.waiting().ms <= 60_000);
+ h.advance(3600_000 + 91_000); assert.equal((await p).continue, true);
+});
+test('the wait is announced once per reset, not at every tick', async t => {
+ const h = harness(t); await h.headers(3600); const p = h.error(); await settle();
+ for (let i = 0; i < 5; i++) { h.advance(60_000); await settle(); }
+ assert.equal(h.messages.length, 1); h.controller.abort(); await p;
 });

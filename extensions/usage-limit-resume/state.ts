@@ -42,6 +42,13 @@ export class SharedState {
   }
   return at;
  }
+ /** Drops every saved cooldown of a family, e.g. when fresh windows show capacity again. */
+ clearCooldown(f: Family): void {
+  const own = new RegExp(`^cooldown-${f.replace(/[^a-z0-9-]/gi, "")}-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\\.json$`);
+  let files: string[];
+  try { files = readdirSync(this.directory); } catch (e: any) { if (e.code === "ENOENT") return; throw e; }
+  for (const name of files.filter(n => own.test(n))) rmSync(join(this.directory, name), { force: true });
+ }
  limit(f: Family, at: number): void {
   if (!Number.isFinite(at)) throw new Error("Invalid quota reset instant");
   this.write(`cooldown-${f}-${randomUUID()}.json`, { at });
