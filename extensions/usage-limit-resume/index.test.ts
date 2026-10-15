@@ -705,3 +705,16 @@ test('resume files of sessions never reopened are dropped a week after their res
  await h.handlers.session_start({ reason: 'startup' }, h.ctx);
  assert.equal(h.store.pendingResume('old'), undefined); assert.ok(h.store.pendingResume('recent'));
 });
+test('a read-only state dir: what was written in memory wins over stale files, and no spurious warning (S14)', async t => {
+ const dir = mkdtempSync(join(tmpdir(), 'pi-quota-ro-'));
+ t.after(() => { chmodSync(dir, 0o700); rmSync(dir, { recursive: true, force: true }); });
+ const s = new SharedState(dir);
+ s.setWindows('claude', { fiveHour: { usedPercent: 100, resetsAt: Date.now() + 3600_000 } });
+ s.limit('claude', Date.now() + 3600_000);
+ chmodSync(dir, 0o500);
+ s.setWindows('claude', { fiveHour: { usedPercent: 5, resetsAt: Date.now() + 3600_000 } });
+ s.dismiss('claude', Date.now() + 7200_000);
+ assert.equal(s.windows('claude').fiveHour!.usedPercent, 5); assert.ok(s.dismissedUntil('claude') > Date.now());
+ const fresh = mkdtempSync(join(tmpdir(), 'pi-quota-ok-')); t.after(() => rmSync(fresh, { recursive: true, force: true }));
+ const ok = new SharedState(fresh); ok.record({ n: 1 }); assert.equal(ok.failed, undefined);
+});

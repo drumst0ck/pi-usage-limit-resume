@@ -18,11 +18,17 @@ export class SharedState {
  /** Set when the directory cannot be used; state then lives in memory for this process only. */
  failed?: Error;
  private readonly memory = new Map<string, string>();
+ /** Names removed while the directory refused it: hidden even though the stale file remains on disk. */
+ private readonly deleted = new Set<string>();
  constructor(directory: string, now = Date.now) { this.directory = directory; this.now = now; }
  private read(name: string): any {
-  let text: string | undefined;
-  try { text = readFileSync(join(this.directory, name), "utf8"); }
-  catch (e: any) { if (e.code !== "ENOENT") this.failed ??= e; text = this.memory.get(name); }
+  if (this.deleted.has(name)) return undefined;
+  // What this process wrote in memory is newer than any file the directory refused to replace.
+  let text = this.memory.get(name);
+  if (text === undefined) {
+   try { text = readFileSync(join(this.directory, name), "utf8"); }
+   catch (e: any) { if (e.code !== "ENOENT") this.failed ??= e; }
+  }
   if (text === undefined) return undefined;
   try { return JSON.parse(text); } catch { return undefined; }
  }
@@ -31,11 +37,12 @@ export class SharedState {
   let files: string[] = [];
   try { files = readdirSync(this.directory); }
   catch (e: any) { if (e.code !== "ENOENT") this.failed ??= e; }
-  return [...new Set([...files, ...this.memory.keys()])];
+  return [...new Set([...files, ...this.memory.keys()])].filter(n => !this.deleted.has(n));
  }
  private remove(name: string): void {
   this.memory.delete(name);
-  try { rmSync(join(this.directory, name), { force: true }); } catch (e: any) { this.failed ??= e; }
+  try { rmSync(join(this.directory, name), { force: true }); this.deleted.delete(name); }
+  catch (e: any) { this.failed ??= e; this.deleted.add(name); }
  }
  private write(name: string, data: unknown): void { this.writeText(name, JSON.stringify(data)); }
  private writeText(name: string, text: string): void {
@@ -45,10 +52,12 @@ export class SharedState {
    writeFileSync(temp, text, { mode: 0o600, flag: "wx" });
    renameSync(temp, join(this.directory, name));
    this.memory.delete(name);
+   this.deleted.delete(name);
   } catch (e: any) {
    // An unusable state directory must never break a message or a wait: keep the data in memory.
    this.failed ??= e;
    this.memory.set(name, text);
+   this.deleted.delete(name);
   } finally { try { rmSync(temp, { force: true }); } catch { /* Nothing was written. */ } }
  }
  cooldown(f: Family): number { return this.cooldownInfo(f).at; }
@@ -110,9 +119,11 @@ export class SharedState {
   // Appended (O_APPEND) so concurrent processes never overwrite each other. Past 100 lines the file is renamed, not
   // rewritten: an event appended during the rename lands in one of the two files instead of being lost.
   const file = join(this.directory, "limit-history.jsonl");
+  try { appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 }); }
+  catch (e: any) { this.failed ??= e; return; }
+  // Another process may rotate at the same moment: its rename leaves nothing to do here, which is not a failure.
   try {
-   appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
    if (readFileSync(file, "utf8").split("\n").filter(Boolean).length > 100) renameSync(file, join(this.directory, "limit-history.1.jsonl"));
-  } catch (e: any) { this.failed ??= e; }
+  } catch (e: any) { if (e.code !== "ENOENT") this.failed ??= e; }
  }
 }

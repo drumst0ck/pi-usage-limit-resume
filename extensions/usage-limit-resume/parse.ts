@@ -100,7 +100,9 @@ export function parseResetTime(msg: string, now: Date): number | undefined {
 	else if (mm === undefined || h > 23) return undefined;
 	const min = mm ? +mm : 0;
 	if (min > 59) return undefined;
-	const off = zoneOffset(paren ?? bare, paren !== undefined);
+	// A bare word is a zone only as an uppercase abbreviation or a UTC/GMT offset: "resets 7pm west" is not WEST.
+	const bareZone = bare && (/^(?:UTC|GMT)\s*[+-]/i.test(bare) || bare === bare.toUpperCase()) ? bare : undefined;
+	const off = zoneOffset(paren ?? bareZone, paren !== undefined || bareZone !== undefined);
 	if (!off) return undefined;
 	const z = new Date(nowMs + off(nowMs)); // "today" in the target zone
 	const [y, mo0, d0] = [z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate()];

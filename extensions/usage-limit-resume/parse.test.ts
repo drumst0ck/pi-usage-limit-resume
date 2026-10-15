@@ -134,3 +134,10 @@ test('24-hour reset times are parsed; a bare number is not a time (S12)',()=>{
  assert.equal(parseResetTime('resets 3 times a day',NOW),undefined);
  assert.equal(parseResetTime('resets 13pm (UTC)',NOW),undefined);
 });
+test('a bare word after the time is only a zone when written as an uppercase abbreviation (S12)',()=>{
+ const local=parseResetTime('resets 7pm',NOW);
+ assert.equal(parseResetTime('resets 7pm west',NOW),local);
+ assert.equal(parseResetTime('resets 7pm today',NOW),local);
+ assert.equal(iso(parseResetTime('resets 7pm WEST',NOW)!),'2026-10-14T18:00:00.000Z');
+ assert.equal(parseResetTime('resets 7pm ET',NOW),undefined);
+});
