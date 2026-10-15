@@ -522,3 +522,23 @@ test('the wait is announced once per reset, not at every tick', async t => {
  for (let i = 0; i < 5; i++) { h.advance(60_000); await settle(); }
  assert.equal(h.messages.length, 1); h.controller.abort(); await p;
 });
+
+// ---------------------------------------------------------------- history and status
+test('every limit event is appended to a capped history, not only the last one', async t => {
+ const h = harness(t);
+ for (let i = 0; i < 3; i++) { const c = new AbortController(); h.ctx.signal = c.signal; await h.headers(600 + i); const p = h.error(); await settle(); c.abort(); await p; }
+ const lines = readFileSync(join(h.dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+ assert.equal(lines.length, 3); assert.ok(lines.every(l => l.family === 'claude')); assert.equal(lastLimit(h).family, 'claude');
+});
+test('the history keeps only the most recent 50 events', t => {
+ const dir = mkdtempSync(join(tmpdir(), 'pi-quota-hist-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ const s = new SharedState(dir);
+ for (let i = 0; i < 60; i++) s.record({ n: i });
+ const lines = readFileSync(join(dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+ assert.equal(lines.length, 50); assert.equal(lines[0].n, 10); assert.equal(lines[49].n, 59);
+});
+test('/limit-resume status lists active cooldowns, even for a family with no windows', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
+ await h.commands['limit-resume'].handler('status', h.ctx);
+ assert.match(h.notes.join('\n'), /claude: cooldown until/);
+});

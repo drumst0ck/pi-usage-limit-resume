@@ -20,11 +20,12 @@ export class SharedState {
   try { return JSON.parse(readFileSync(join(this.directory, name), "utf8")); }
   catch (e: any) { if (e.code === "ENOENT" || e instanceof SyntaxError) return undefined; throw e; }
  }
- private write(name: string, data: unknown): void {
+ private write(name: string, data: unknown): void { this.writeText(name, JSON.stringify(data)); }
+ private writeText(name: string, text: string): void {
   mkdirSync(this.directory, { recursive: true, mode: 0o700 });
   const temp = join(this.directory, `.${randomUUID()}.tmp`);
   try {
-   writeFileSync(temp, JSON.stringify(data), { mode: 0o600, flag: "wx" });
+   writeFileSync(temp, text, { mode: 0o600, flag: "wx" });
    renameSync(temp, join(this.directory, name));
   } finally { rmSync(temp, { force: true }); }
  }
@@ -59,5 +60,11 @@ export class SharedState {
  /** A refresh was attempted and found nothing: keep the old windows, but throttle the next attempt. */
  touch(f: Family): void { this.write(`windows-${f}.json`, { ...this.windows(f), checkedAt: this.now() }); }
  /** Last limit event: how the reset was derived, so a wrong cooldown can be diagnosed afterwards. */
- record(entry: Record<string, unknown>): void { this.write("last-limit.json", entry); }
+ record(entry: Record<string, unknown>): void {
+  this.write("last-limit.json", entry);
+  // Capped history: a later event of another provider must not erase the evidence of an earlier one.
+  let lines: string[] = [];
+  try { lines = readFileSync(join(this.directory, "limit-history.jsonl"), "utf8").split("\n").filter(Boolean); } catch { /* First event. */ }
+  this.writeText("limit-history.jsonl", [...lines, JSON.stringify(entry)].slice(-50).join("\n") + "\n");
+ }
 }

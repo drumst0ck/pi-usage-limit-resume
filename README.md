@@ -61,7 +61,7 @@ Details:
 
 | Command | Effect |
 |---|---|
-| `/limit-resume status` | Shows whether it is waiting, and the saved 5h, weekly and monthly usage and reset time of each provider. |
+| `/limit-resume status` | Shows whether it is waiting, every active cooldown, and the saved 5h, weekly and monthly usage and reset time of each provider. |
 | `/limit-resume now` | Stops waiting and retries immediately. When nothing is being waited on, it sends the resume prompt. |
 | `/limit-resume cancel` | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. A new limit error waits again. |
 
@@ -164,7 +164,7 @@ to wait for. It does not impersonate other clients: requests carry an honest `Us
 ## State files and troubleshooting
 
 Everything lives in the state directory as small JSON files: cooldowns, saved windows (`windows-<family>.json`) and
-`last-limit.json`, the last limit event. Its `source` field tells which step produced the reset time: `headers`,
+`last-limit.json`, the last limit event, and `limit-history.jsonl`, the last 50 events (one JSON per line, all providers). Its `source` field tells which step produced the reset time: `headers`,
 `message`, `headers-cache`, `usage-endpoint`, `claude-cli`, `native` or `probe`.
 
 | Symptom | Check |

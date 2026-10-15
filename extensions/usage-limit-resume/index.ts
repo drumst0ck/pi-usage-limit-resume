@@ -300,7 +300,11 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     const at = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
     const win = (label: string, w?: { usedPercent: number; resetsAt: number }) => w ? `${label} ${Math.round(w.usedPercent)}% resets ${at(w.resetsAt)}` : "";
     const shown = [...new Set([...usedFamilies, ...Object.keys(config.families ?? {})])];
-    const lines = shown.map(f => { const w = store.windows(f); const parts = [win("5h", w.fiveHour), win("weekly", w.weekly), win("monthly", w.monthly)].filter(Boolean); return parts.length ? `${f}: ${parts.join(" · ")}` : ""; }).filter(Boolean);
+    const lines = shown.map(f => {
+     const w = store.windows(f); const hold = store.cooldown(f);
+     const parts = [hold ? `cooldown until ${at(hold)}` : "", win("5h", w.fiveHour), win("weekly", w.weekly), win("monthly", w.monthly)].filter(Boolean);
+     return parts.length ? `${f}: ${parts.join(" · ")}` : "";
+    }).filter(Boolean);
     ctx.ui.notify([resumeAt ? `Waiting until ${new Date(resumeAt).toLocaleString()}` : "Watching usage limits.", ...lines].join("\n"), "info");
    }
   },
