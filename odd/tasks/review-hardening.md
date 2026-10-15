@@ -25,3 +25,4 @@ Read until `## Log`.
 - L1 "usa opues 5.5 como orquestador para revisar todo esto buscar posibles errores y bugs y mejorar el producto"
 - L2 Judges A and B ran on a753c8d; 28 rows, corroborated set above. Not addressed: JD-B-011 (zone abbreviations, 24h), JD-A-010 (gc of other families), JD-B-009 (state-dir errors), JD-A-014 (MAX_CONSECUTIVE wording).
 - L3 RED observed for 15 new tests; GREEN 288/288 + typecheck. CLI fixture test moved to a future date (old fixed date now parses as just-passed per S6).
+- L4 Verify: S1-S10 met (288/288); fixed W1 (success keeps noRelease cooldown), W3 (probe label by own instant), README nit. 289/289. Commit b0603b5.
