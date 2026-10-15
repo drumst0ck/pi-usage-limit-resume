@@ -28,12 +28,6 @@ function zoneOffsetMs(zone: string | undefined, at: number): number {
 	return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(at / 1000) * 1000;
 }
 
-function wallToInstant(y: number, mo: number, d: number, h: number, mi: number, zone?: string): number {
-	const wall = Date.UTC(y, mo, d, h, mi);
-	let t = wall - zoneOffsetMs(zone, wall);
-	t = wall - zoneOffsetMs(zone, t);
-	return t;
-}
 
 const UNIT_MS: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 };
 const REL_UNITS = "days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s";
@@ -50,63 +44,81 @@ function parseRelativeReset(msg: string, nowMs: number): number | undefined {
 }
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-const WEEKDAY_RESET = /(?:resets?(?: at)?|try again at|reset at)\s+(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?,?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)(?:\s*\(([A-Za-z_]+\/[A-Za-z_\-+0-9/]+|UTC)\))?/i;
+/** Common zone abbreviations, in hours from UTC. Ambiguous ones use their most frequent meaning. */
+const ZONE_ABBR: Record<string, number> = {
+	UTC: 0, GMT: 0, WET: 0, WEST: 1, BST: 1, CET: 1, CEST: 2, EET: 2, EEST: 3, MSK: 3, IST: 5.5, JST: 9, KST: 9,
+	AEST: 10, AEDT: 11, NZST: 12, NZDT: 13, HST: -10, AKST: -9, AKDT: -8, PST: -8, PDT: -7, MST: -7, MDT: -6,
+	CST: -6, CDT: -5, EST: -5, EDT: -4,
+};
+type Offset = (at: number) => number;
 
-/** "resets Mon 7pm (Europe/Madrid)": the next time that weekday reaches that wall-clock time in the stated zone. */
-function parseWeekdayReset(msg: string, nowMs: number): number | undefined {
-	const m = msg.match(WEEKDAY_RESET);
-	if (!m) return undefined;
-	const [, day, hh, mm, ap, zoneRaw] = m;
-	const zone = zoneRaw && zoneRaw.toUpperCase() !== "UTC" ? zoneRaw : zoneRaw ? "UTC" : undefined;
-	const h = (+hh % 12) + (/^p/i.test(ap) ? 12 : 0);
-	try {
-		const z = new Date(nowMs + zoneOffsetMs(zone, nowMs));
-		const ahead = (WEEKDAYS.indexOf(day.toLowerCase()) - z.getUTCDay() + 7) % 7;
-		let t = wallToInstant(z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate() + ahead, h, mm ? +mm : 0, zone);
-		if (t <= nowMs) t = wallToInstant(z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate() + ahead + 7, h, mm ? +mm : 0, zone);
-		return t;
-	} catch {
-		return undefined;
+/**
+ * Offset function for a zone token: IANA name, abbreviation or UTC/GMT±hh[:mm]. No token means the machine's zone.
+ * Null when a token in parentheses is not a zone: a wrong zone would be off by hours, so no reset is better.
+ */
+function zoneOffset(raw: string | undefined, strict: boolean): Offset | null {
+	const local: Offset = at => -new Date(at).getTimezoneOffset() * 60000;
+	if (!raw) return local;
+	const token = raw.trim();
+	const fixed = (hours: number): Offset => () => hours * 3600_000;
+	const off = token.match(/^(?:UTC|GMT)\s*([+-])(\d{1,2})(?::?(\d{2}))?$/i);
+	if (off) return fixed((off[1] === "-" ? -1 : 1) * (+off[2] + (off[3] ? +off[3] / 60 : 0)));
+	if (ZONE_ABBR[token.toUpperCase()] !== undefined) return fixed(ZONE_ABBR[token.toUpperCase()]);
+	if (token.includes("/")) {
+		try { new Intl.DateTimeFormat("en-US", { timeZone: token }); return at => zoneOffsetMs(token, at); }
+		catch { return null; }
 	}
+	return strict ? null : local;
 }
+
+function wallAt(y: number, mo: number, d: number, h: number, mi: number, off: Offset): number {
+	const wall = Date.UTC(y, mo, d, h, mi);
+	const t = wall - off(wall);
+	return wall - off(t);
+}
+
+const ABSOLUTE = new RegExp(
+	String.raw`(?:resets?(?:\s+at)?|try again at|reset at)\s+` +
+	String.raw`(?:(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?,?\s+)?` +
+	String.raw`(?:([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+)?` +
+	String.raw`(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?:\s*([ap]\.?m\.?))?` +
+	String.raw`(?:\s*\(([^)]{1,40})\)|\s+((?:UTC|GMT)\s*[+-]\d{1,2}(?::?\d{2})?|[A-Z]{2,5})\b)?`,
+	"i",
+);
 
 /** Returns the next reset instant (epoch ms) found in the message, or undefined. */
 export function parseResetTime(msg: string, now: Date): number | undefined {
-	const relative = parseRelativeReset(msg, now.getTime());
-	if (relative !== undefined) return relative;
-	const weekday = parseWeekdayReset(msg, now.getTime());
-	if (weekday !== undefined) return weekday;
-	const m = msg.match(
-		/(?:resets?(?: at)?|try again at|reset at)\s+(?:(?:([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?)(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)(?:\s*\(([A-Za-z_]+\/[A-Za-z_\-+0-9/]+|UTC)\))?/i,
-	);
-	if (!m) return undefined;
-	const [, mon, day, hh, mm, ap, zoneRaw] = m;
-	const zone = zoneRaw && zoneRaw.toUpperCase() !== "UTC" ? zoneRaw : zoneRaw ? "UTC" : undefined;
-	let h = +hh % 12;
-	if (/^p/i.test(ap)) h += 12;
-	const min = mm ? +mm : 0;
 	const nowMs = now.getTime();
-	// "today" in the target zone
-	const off = zoneOffsetMs(zone, nowMs);
-	const z = new Date(nowMs + off);
-	let y = z.getUTCFullYear();
-	let mo = z.getUTCMonth();
-	let d = z.getUTCDate();
-	try {
-		if (mon && day && MONTHS.includes(mon.toLowerCase())) {
-			mo = MONTHS.indexOf(mon.toLowerCase());
-			d = +day;
-			let t = wallToInstant(y, mo, d, h, min, zone);
-			// Just passed (old error, clock skew): it is the reset that elapsed, not next year's.
-			if (t <= nowMs && nowMs - t > 36 * 3600_000) t = wallToInstant(y + 1, mo, d, h, min, zone);
-			return t;
-		}
-		let t = wallToInstant(y, mo, d, h, min, zone);
-		if (t <= nowMs) t = wallToInstant(y, mo, d + 1, h, min, zone);
+	const relative = parseRelativeReset(msg, nowMs);
+	if (relative !== undefined) return relative;
+	const m = msg.match(ABSOLUTE);
+	if (!m) return undefined;
+	const [, weekday, mon, day, hh, mm, ap, paren, bare] = m;
+	// 12-hour times need am/pm; 24-hour times need minutes ("19:00"), so "resets 3 times a day" is not a time.
+	let h = +hh;
+	if (ap) { if (h < 1 || h > 12) return undefined; h = (h % 12) + (/^p/i.test(ap) ? 12 : 0); }
+	else if (mm === undefined || h > 23) return undefined;
+	const min = mm ? +mm : 0;
+	if (min > 59) return undefined;
+	const off = zoneOffset(paren ?? bare, paren !== undefined);
+	if (!off) return undefined;
+	const z = new Date(nowMs + off(nowMs)); // "today" in the target zone
+	const [y, mo0, d0] = [z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate()];
+	if (mon) {
+		const mo = MONTHS.indexOf(mon.toLowerCase());
+		if (mo < 0) return undefined;
+		let t = wallAt(y, mo, +day, h, min, off);
+		// Just passed (old error, clock skew): it is the reset that elapsed, not next year's.
+		if (t <= nowMs && nowMs - t > 36 * 3600_000) t = wallAt(y + 1, mo, +day, h, min, off);
 		return t;
-	} catch {
-		return undefined; // invalid IANA zone
 	}
+	if (weekday) {
+		const ahead = (WEEKDAYS.indexOf(weekday.toLowerCase()) - z.getUTCDay() + 7) % 7;
+		const t = wallAt(y, mo0, d0 + ahead, h, min, off);
+		return t > nowMs ? t : wallAt(y, mo0, d0 + ahead + 7, h, min, off);
+	}
+	const t = wallAt(y, mo0, d0, h, min, off);
+	return t > nowMs ? t : wallAt(y, mo0, d0 + 1, h, min, off);
 }
 
 const RESET_KEY = /(ratelimit.*reset|-reset-at$|-reset-after-seconds$)/;

@@ -110,3 +110,27 @@ test('a month/day reset that just passed is not rolled to next year (S6)',()=>{
  assert.equal(iso(t),'2026-10-14T10:30:00.000Z');
  assert.equal(iso(parseResetTime('resets Oct 10 at 10am (UTC)',NOW)!),'2027-10-10T10:00:00.000Z');
 });
+
+test('zone abbreviations and UTC/GMT offsets set the reset zone (S12)',()=>{
+ // NOW = 2026-10-14T11:00:00Z
+ assert.equal(iso(parseResetTime('resets 7pm (PDT)',NOW)!),'2026-10-15T02:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 7pm PST',NOW)!),'2026-10-15T03:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 3pm (CEST)',NOW)!),'2026-10-14T13:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 3pm (GMT+2)',NOW)!),'2026-10-14T13:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 3pm UTC-5',NOW)!),'2026-10-14T20:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 3pm (UTC+05:30)',NOW)!),'2026-10-15T09:30:00.000Z');
+ assert.equal(iso(parseResetTime('resets Mon 7pm (EDT)',NOW)!),'2026-10-19T23:00:00.000Z');
+});
+test('an unknown zone in parentheses yields no reset instead of a wrong one (S12)',()=>{
+ assert.equal(parseResetTime('resets 7pm (XYZT)',NOW),undefined);
+ assert.equal(parseResetTime('resets 7pm (Mars/Olympus)',NOW),undefined);
+});
+test('24-hour reset times are parsed; a bare number is not a time (S12)',()=>{
+ assert.equal(iso(parseResetTime('resets 19:00 (UTC)',NOW)!),'2026-10-14T19:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets at 09:30 UTC',NOW)!),'2026-10-15T09:30:00.000Z');
+ assert.equal(iso(parseResetTime('resets Oct 20 at 18:00 (UTC)',NOW)!),'2026-10-20T18:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets Monday 19:00 (UTC)',NOW)!),'2026-10-19T19:00:00.000Z');
+ assert.equal(parseResetTime('resets 25:00 (UTC)',NOW),undefined);
+ assert.equal(parseResetTime('resets 3 times a day',NOW),undefined);
+ assert.equal(parseResetTime('resets 13pm (UTC)',NOW),undefined);
+});
