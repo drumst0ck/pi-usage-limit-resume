@@ -645,3 +645,63 @@ test('an unusable state directory never breaks a message or a wait; the user is 
  h.advance(3600_000 + 91_000); assert.equal((await p)?.continue, true);
  assert.equal(h.notes.filter(n => /state directory/i.test(n)).length, 1);
 });
+
+// ---------------------------------------------------------------- resume after closing Pi (S11)
+const reopen = (h: any, sid = 'sess-1') => { const c = h.child(); c.ctx.sessionManager = { getSessionId: () => sid }; c.ctx.isIdle = () => true; return c; };
+async function closedWhileWaiting(t: any, seconds = 3600) {
+ const h = harness(t); h.ctx.sessionManager = { getSessionId: () => 'sess-1' };
+ await h.headers(seconds); const p = h.error(); await settle();
+ await h.handlers.session_shutdown({}, h.ctx); assert.equal(await p, undefined);
+ return h;
+}
+test('a wait interrupted by closing Pi resumes when that session is reopened, at the reset (S11)', async t => {
+ const h = await closedWhileWaiting(t);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx);
+ assert.match(c.notes.join('\n'), /claude.*continues .*automatically/i); assert.equal(c.sent.length, 0);
+ h.advance(3600_000 + 91_000); await settle();
+ assert.equal(c.sent.length, 1); assert.match(c.sent[0][0], /Continue exactly/);
+ const again = reopen(h); await again.handlers.session_start({ reason: 'resume' }, again.ctx); h.advance(3600_000); await settle();
+ assert.equal(again.sent.length, 0);
+});
+test('reopening after the reset already passed resumes at once (S11)', async t => {
+ const h = await closedWhileWaiting(t, 60); h.advance(10 * 60_000);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx); await settle();
+ assert.equal(c.sent.length, 1);
+});
+test('another session, or a message typed before the reset, does not get the resume prompt (S11)', async t => {
+ const h = await closedWhileWaiting(t);
+ const other = reopen(h, 'sess-2'); await other.handlers.session_start({ reason: 'startup' }, other.ctx);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx);
+ c.ctx.model = codex; await c.handlers.before_agent_start({ prompt: 'something else' }, c.ctx);
+ h.advance(3600_000 + 91_000); await settle();
+ assert.equal(other.sent.length, 0); assert.equal(c.sent.length, 0);
+});
+test('cancel after reopening drops the pending resume; now sends it at once (S11)', async t => {
+ const h = await closedWhileWaiting(t);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx);
+ await c.commands['limit-resume'].handler('cancel', c.ctx); h.advance(3600_000 + 91_000); await settle();
+ assert.equal(c.sent.length, 0);
+ const h2 = await closedWhileWaiting(t);
+ const d = reopen(h2); await d.handlers.session_start({ reason: 'resume' }, d.ctx);
+ await d.commands['limit-resume'].handler('now', d.ctx); await settle();
+ assert.equal(d.sent.length, 1); h2.advance(3600_000 + 91_000); await settle(); assert.equal(d.sent.length, 1);
+});
+test('a wait that ends normally leaves nothing to resume after a restart (S11)', async t => {
+ const h = harness(t); h.ctx.sessionManager = { getSessionId: () => 'sess-1' };
+ await h.headers(60); const p = h.error(); await settle(); h.advance(200_000); assert.equal((await p)?.continue, true);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx); await settle();
+ assert.equal(c.sent.length, 0);
+});
+test('an RPC child never schedules a resume after a restart (S11)', async t => {
+ const h = await closedWhileWaiting(t);
+ const c = h.child({ argv: ['node', 'pi', '--mode', 'rpc'] }); c.ctx.sessionManager = { getSessionId: () => 'sess-1' };
+ await c.handlers.session_start({ reason: 'resume' }, c.ctx); h.advance(3600_000 + 91_000); await settle();
+ assert.equal(c.sent.length, 0);
+});
+test('resume files of sessions never reopened are dropped a week after their reset (S11, S13)', async t => {
+ const h = harness(t);
+ h.store.setPendingResume('old', { family: 'claude', at: Date.now() - 8 * 86400_000 });
+ h.store.setPendingResume('recent', { family: 'claude', at: Date.now() - 86400_000 });
+ await h.handlers.session_start({ reason: 'startup' }, h.ctx);
+ assert.equal(h.store.pendingResume('old'), undefined); assert.ok(h.store.pendingResume('recent'));
+});

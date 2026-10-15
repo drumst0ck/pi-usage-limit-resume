@@ -229,6 +229,32 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   }
  };
 
+ // ----- resume after closing Pi -----
+ let shuttingDown = false;
+ let resumeTimer: ReturnType<typeof setTimeout> | undefined;
+ let resumeSession: string | undefined;
+ const sessionIdOf = (ctx: any): string | undefined => { try { return ctx?.sessionManager?.getSessionId?.() || undefined; } catch { return undefined; } };
+ /** Forgets a resume scheduled after a restart: on disk and its timer. */
+ const dropResume = () => {
+  if (resumeTimer) clearTimeout(resumeTimer);
+  resumeTimer = undefined;
+  if (resumeSession) try { store.clearPendingResume(resumeSession); } catch { /* Best effort. */ }
+  resumeSession = undefined;
+ };
+ const scheduleResume = (ctx: any, sid: string, pending: { family: Family; at: number }) => {
+  resumeSession = sid;
+  const fire = () => {
+   if (resumeSession !== sid) return;
+   const at = Math.max(pending.at, store.cooldown(pending.family));
+   if (Date.now() < at) { resumeTimer = setTimeout(fire, Math.max(1, Math.min(at - Date.now(), TICK_MS))); return; }
+   dropResume();
+   try { pi.sendUserMessage(RESUME_PROMPT, ctx.isIdle?.() === false ? { deliverAs: "followUp" } : undefined); } catch { /* Session gone. */ }
+  };
+  const at = Math.max(pending.at, store.cooldown(pending.family));
+  if (at <= Date.now()) { fire(); return; }
+  ctx.ui?.notify?.(`${pending.family} usage limit was being waited on when Pi closed. Pi continues this task automatically at ${when(at)}; type anything to skip it, /limit-resume cancel to drop it.`, "info");
+  resumeTimer = setTimeout(fire, Math.min(at - Date.now(), TICK_MS));
+ };
  let stateWarned = false;
  const warnState = (ctx: any) => {
   if (!store.failed || stateWarned) return;
@@ -236,11 +262,17 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   ctx?.ui?.notify?.(`Usage-limit state directory ${store.directory} is not usable (${store.failed.message}); limits are kept in memory for this Pi only.`, "warning");
  };
  pi.on("session_start", async (_event: any, ctx: any) => {
+  shuttingDown = false;
   try { store.gc(); } catch { /* Best effort. */ }
   warnState(ctx);
+  const sid = sessionIdOf(ctx);
+  if (!sid || rpcChild) return;
+  try { const pending = store.pendingResume(sid); if (pending) scheduleResume(ctx, sid, pending); } catch { /* Best effort. */ }
  });
  pi.on("before_agent_start", async (_event: any, ctx: any) => {
   warnState(ctx);
+  // The user typed something before the scheduled resume: their message wins.
+  if (resumeSession) dropResume();
   const f = familyOf(ctx.model);
   if (f) usedFamilies.add(f);
   try { applySavedWindows(); refreshWindows(ctx); } catch { /* Window tracking must never block a message. */ }
@@ -322,8 +354,13 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   if (++attempts > MAX_CONSECUTIVE) {
    ctx.ui?.notify?.(`Too many consecutive usage limits; stopped waiting. ${f} stays limited until ${new Date(store.cooldown(f)).toLocaleString()}: your next ${f} message waits for it. /limit-resume cancel clears it, /limit-resume now retries.`, "warning"); return;
   }
+  // Remember the wait so reopening this session after closing Pi can continue the task.
+  const sid = sessionIdOf(ctx);
+  if (sid) try { store.setPendingResume(sid, { family: f, at: store.cooldown(f) }); } catch { /* Best effort. */ }
   // Keep the boundary open during the wait: Gentle must NOT receive agent_settled yet.
-  if (await waitForReset(ctx, f)) {
+  const resumed = await waitForReset(ctx, f);
+  if (sid && !shuttingDown) try { store.clearPendingResume(sid); } catch { /* Best effort. */ }
+  if (resumed) {
    pendingError = undefined;
    return { continue: true, entries: [{ type: "custom_message", customType: "usage-limit-resume", content: RESUME_PROMPT, display: false }] };
   }
@@ -346,6 +383,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     // Cancel means "stop holding me": drop the saved cooldown too, or the very next message would wait again.
     const f = waitingFamily ?? familyOf(ctx.model);
     if (f) dismiss(f);
+    dropResume();
     stop(ctx); if (waiting) ctx.abort?.();
     ctx.ui.notify(`Auto-resume cancelled${f ? ` for ${f}; the next message is sent normally` : ""}.`, "info");
    }
@@ -354,6 +392,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     // Like cancel, "now" overrides the saved limit; otherwise the retry itself would be held again.
     const f = waitingFamily ?? familyOf(ctx.model);
     if (f) dismiss(f);
+    dropResume();
     if (wake) { forceRetry = true; wake(true); return; }
     pi.sendUserMessage(RESUME_PROMPT, ctx.isIdle?.() === false ? { deliverAs: "followUp" } : undefined);
    } else {
@@ -370,5 +409,11 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   },
  });
  const resetSession = (ctx: any) => { stop(ctx); released.clear(); probeAt.clear(); pendingError = undefined; limitHeaders = undefined; attempts = 0; forceRetry = false; };
- pi.on("session_shutdown", async (_event: any, ctx: any) => { resetSession(ctx); });
+ pi.on("session_shutdown", async (_event: any, ctx: any) => {
+  // A wait cut short by closing Pi stays on disk for the next start of this session.
+  shuttingDown = true;
+  if (resumeTimer) clearTimeout(resumeTimer);
+  resumeTimer = undefined; resumeSession = undefined;
+  resetSession(ctx);
+ });
 }

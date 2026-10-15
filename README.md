@@ -47,6 +47,7 @@ Then restart Pi or run `/reload`. Check it is loaded with `pi list`. Remove it w
    When the time comes it tells the agent to carry on exactly where it stopped. It waits on the same model.
 3. **Holds your next message before wasting a request** if a saved 5-hour or weekly window is already at 100%. Monthly windows are shown but never hold a message: they often gate one lane only (Z.ai MCP, Copilot premium requests).
 4. **Releases a stale cooldown by itself.** Before holding a message, and every 3 minutes while waiting, it asks the provider for fresh windows; if none is exhausted (for example you upgraded your plan, or a window reset early) it clears the cooldown and continues. It does this at most once per limit: a model-specific limit ("Opus limit") or a limit hit again within 15 minutes of a release is kept until its reset. Any successful answer from that provider also clears its cooldown, in every Pi process.
+5. **Survives closing Pi.** If you close Pi while it waits, reopening that session tells you when it will continue and sends the resume prompt at the reset. Typing anything first, `/limit-resume cancel` or `now` replaces it.
 
 Details:
 

@@ -77,6 +77,11 @@ export class SharedState {
    const entry = this.read(name);
    if (!Number.isFinite(entry?.at) || entry.at <= this.now()) this.remove(name);
   }
+  // Resumes of sessions never reopened: dropped a week after their reset.
+  for (const name of this.names().filter(n => /^resume-.+\.json$/.test(n))) {
+   const entry = this.read(name);
+   if (!Number.isFinite(entry?.at) || entry.at < this.now() - 7 * 86400_000) this.remove(name);
+  }
  }
  limit(f: Family, at: number, meta: { noRelease?: boolean } = {}): void {
   if (!Number.isFinite(at)) throw new Error("Invalid quota reset instant");
@@ -86,6 +91,14 @@ export class SharedState {
  dismiss(f: Family, until: number): void { this.write(`dismissed-${f}.json`, { until }); }
  dismissedUntil(f: Family): number { const d = this.read(`dismissed-${f}.json`); return Number.isFinite(d?.until) ? d.until : 0; }
  clearDismiss(f: Family): void { this.remove(`dismissed-${f}.json`); }
+ /** A wait interrupted by closing Pi, keyed by session, so reopening that session can continue the task. */
+ private resumeName(sessionId: string): string { return `resume-${sessionId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 128)}.json`; }
+ setPendingResume(sessionId: string, data: { family: Family; at: number }): void { this.write(this.resumeName(sessionId), data); }
+ pendingResume(sessionId: string): { family: Family; at: number } | undefined {
+  const d = this.read(this.resumeName(sessionId));
+  return d && typeof d.family === "string" && Number.isFinite(d.at) ? d : undefined;
+ }
+ clearPendingResume(sessionId: string): void { this.remove(this.resumeName(sessionId)); }
  /** Last 5h/weekly windows seen for a family, and when any process last tried to refresh them. */
  windows(f: Family): Windows & { checkedAt?: number } { return this.read(`windows-${f}.json`) ?? {}; }
  setWindows(f: Family, w: Windows): void { this.write(`windows-${f}.json`, { ...w, checkedAt: this.now() }); }
