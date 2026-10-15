@@ -27,9 +27,9 @@ Read until `## Log`.
 - T3 S6 inline [x]
 - T4 S8,S9,S10 inline [x]
 (one commit, recorded in Log)
-- T5 S11 inline
-- T6 S12 inline
-- T7 S13-S16 inline
+- T5 S11 inline [x] b2dd573
+- T6 S12 inline [x] 6695bb5
+- T7 S13-S16 inline [x] 033f291
 
 ## Log
 - L1 "usa opues 5.5 como orquestador para revisar todo esto buscar posibles errores y bugs y mejorar el producto"
@@ -37,3 +37,4 @@ Read until `## Log`.
 - L3 RED observed for 15 new tests; GREEN 288/288 + typecheck. CLI fixture test moved to a future date (old fixed date now parses as just-passed per S6).
 - L4 Verify: S1-S10 met (288/288); fixed W1 (success keeps noRelease cooldown), W3 (probe label by own instant), README nit. 289/289. Commit b0603b5.
 - L5 "sigue con lo pendiente": open items from L2/L4 become S11-S16.
+- L6 RED observed per task; verify: S11,S13,S15 met; S12/S14/S16 partial -> fixed W1 (lowercase word not a zone, unknown uppercase bare zone -> no reset), W2 (memory wins over stale files, failed deletes hidden), W3 (rotation ENOENT not a failure) in 1c568cf. 303/303 + typecheck. Not done: two-process rotation test, W4 shuttingDown single flag (not reproduced).
