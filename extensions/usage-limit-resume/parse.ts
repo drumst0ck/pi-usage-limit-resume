@@ -4,7 +4,7 @@ import type { Windows } from "./state.ts";
 const STRONG =
 	/hit your[\w\s]{0,20}limit|usage limit|rate_limit_error|exceed your account'?s rate limit|\b(session|weekly|opus|sonnet) limit|insufficient[_\s-]*quota|quota (exceeded|reached)|limit will reset|out of extra usage/i;
 const WEAK = /rate.?limit|\b429\b/i;
-const TRANSIENT = /not your usage limit|temporarily limiting|overloaded|\b5\d\d\b/i;
+const TRANSIENT = /not your usage limit|temporarily limiting|overloaded|(?:^|\b(?:http|status|error|code)\W{0,3})5\d\d\b/i;
 const RESET_HINT = /resets?\b|try again at|regain access/i;
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -97,7 +97,8 @@ export function parseResetTime(msg: string, now: Date): number | undefined {
 			mo = MONTHS.indexOf(mon.toLowerCase());
 			d = +day;
 			let t = wallToInstant(y, mo, d, h, min, zone);
-			if (t <= nowMs) t = wallToInstant(y + 1, mo, d, h, min, zone);
+			// Just passed (old error, clock skew): it is the reset that elapsed, not next year's.
+			if (t <= nowMs && nowMs - t > 36 * 3600_000) t = wallToInstant(y + 1, mo, d, h, min, zone);
 			return t;
 		}
 		let t = wallToInstant(y, mo, d, h, min, zone);

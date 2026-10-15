@@ -26,6 +26,9 @@ const CHECK_MS = 3 * 60_000;
 const MAX_WAIT_MS = 8 * 24 * 3600_000;
 const MAX_CONSECUTIVE = 12;
 const MARGIN_MS = 90_000;
+const DISMISS_TOLERANCE_MS = 5 * 60_000;
+const RELEASE_TRUST_MS = 15 * 60_000;
+const MODEL_LIMIT = /\b(opus|sonnet|haiku)\b[\w\s]{0,20}limit/i;
 const PROBE_MS = [10, 20, 30, 60].map(m => m * 60_000);
 const RESUME_PROMPT = "Provider capacity is available. Continue exactly where you stopped. " +
  "Reconcile any odd/tasks/<feature>.md document or open todo list with the next unfinished task. Do not redo completed work.";
@@ -67,18 +70,22 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  let resumeAt: number | undefined;
  let wake: ((resume: boolean) => void) | undefined;
  let forceRetry = false;
- // Family the active wait is holding, and per family the reset the user dismissed with /limit-resume cancel.
+ // Family the active wait is holding; when this process last released each family on fresh windows;
+ // the cooldown instant of each family whose reset time is unknown (probe).
  let waitingFamily: Family | undefined;
- const dismissed = new Map<Family, number>();
+ const released = new Map<Family, number>();
+ const probeAt = new Map<Family, number>();
  let generation = 0;
 
  const stop = (ctx?: any) => {
   generation++;
   wake?.(false);
+  announced.clear();
   ctx?.ui?.setStatus?.("usage-limit-resume", undefined);
  };
+ const when = (at: number) => new Date(at).toLocaleString([], at - Date.now() > 20 * 3600_000 ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" });
  /** Sleeps in short ticks compared with the wall clock (a long timer stalls while the machine sleeps) and runs `check` now and then. */
- const waitUntil = (ctx: any, at: number, check?: () => Promise<boolean>): Promise<boolean> => {
+ const waitUntil = (ctx: any, at: number, label: string, check?: () => Promise<boolean>, changed?: () => boolean): Promise<boolean> => {
   const ms = at - Date.now();
   if (ms <= 0) return Promise.resolve(!ctx.signal?.aborted);
   if (ms > MAX_WAIT_MS) {
@@ -105,6 +112,8 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    const tick = async () => {
     if (finished) return;
     if (Date.now() >= at) return done(true);
+    // Another process cleared or shortened the cooldown (cancel, now, success, release): stop sleeping and re-read.
+    try { if (changed?.()) return done(true); } catch { /* Keep waiting on our own instant. */ }
     if (check && Date.now() - lastCheck >= CHECK_MS) {
      lastCheck = Date.now();
      if (await check().catch(() => false)) return done(true);
@@ -115,27 +124,33 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    wake = done;
    signal?.addEventListener("abort", aborted, { once: true });
    if (signal?.aborted) { done(false); return; }
-   ctx.ui?.setStatus?.("usage-limit-resume", `⏳ resume ${new Date(at).toLocaleTimeString()}`);
+   ctx.ui?.setStatus?.("usage-limit-resume", `⏳ ${label} limit · resumes ${when(at)} · /limit-resume cancel`);
    timer = setTimeout(tick, Math.min(ms, TICK_MS));
   });
  };
  const announce = (f: Family, at: number) => {
-  const time = new Date(at).toLocaleString([], at - Date.now() > 20 * 3600_000 ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" });
+  const time = when(at);
+  const head = Math.abs((probeAt.get(f) ?? -Infinity) - at) < 1000 ? `${f} usage limit reached; next retry at ${time} (reset time unknown).` : `${f} usage limit reached. It resets at ${time}.`;
   try {
    pi.sendMessage?.({ customType: "usage-limit-resume", display: true,
-    content: `⏳ ${f} usage limit reached. It resets at ${time}; Pi continues this task automatically then. /limit-resume now retries, /limit-resume cancel stops waiting.` });
+    content: `⏳ ${head} Pi continues this task automatically then. /limit-resume now retries, /limit-resume cancel stops waiting.` });
   } catch { /* A missing chat notice must not break the wait. */ }
  };
  const announced = new Set<number>();
  // The provider's fresh windows beat a saved cooldown: with no exhausted window the plan has capacity again.
- const releaseIfHealthy = async (ctx: any, f: Family): Promise<boolean> => {
+ // Never for a model-specific limit or one hit again soon after a release: the account windows cannot see those.
+ const releaseIfHealthy = async (ctx: any, f: Family, epoch: number): Promise<boolean> => {
+  if (store.cooldownInfo(f).noRelease) return false;
   const w = await withTimeout<Windows | undefined>(nativeWindows(f, ctx), undefined, NATIVE_TIMEOUT_MS);
   if (!w) return false;
   store.setWindows(f, w);
+  // Cancelled, aborted or superseded while the provider answered: the answer must not change anything.
+  if (epoch !== generation || ctx.signal?.aborted || store.cooldownInfo(f).noRelease) return false;
   const now = Date.now();
   const list = [w.fiveHour, w.weekly, w.monthly].filter(Boolean);
   if (!list.length || list.some(x => x!.usedPercent >= 100 && x!.resetsAt > now)) return false;
   store.clearCooldown(f);
+  released.set(f, Date.now());
   ctx.ui?.notify?.(`${f} has capacity again (plan changed or window reset early); continuing.`, "info");
   return true;
  };
@@ -145,13 +160,14 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   waitingFamily = f;
   try {
   let first = preflight;
+  if (preflight) announced.clear();   // every held message is announced
   while (epoch === generation && !ctx.signal?.aborted) {
    const at = store.cooldown(f);
    if (at <= Date.now()) return true;
    // A saved cooldown can be stale (plan upgraded, window reset early): ask the provider before holding the message.
-   if (first) { first = false; if (await releaseIfHealthy(ctx, f)) return true; continue; }
+   if (first) { first = false; if (await releaseIfHealthy(ctx, f, epoch)) return true; continue; }
    if (!announced.has(at)) { announced.clear(); announced.add(at); announce(f, at); }
-   if (!await waitUntil(ctx, at, () => releaseIfHealthy(ctx, f))) return false;
+   if (!await waitUntil(ctx, at, f, () => releaseIfHealthy(ctx, f, epoch), () => store.cooldown(f) < at - 1000)) return false;
    if (forceRetry) { forceRetry = false; return true; }
    // Another process may have extended the account cooldown. Re-read before resuming.
   }
@@ -202,11 +218,13 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  };
  // A saved window at 100% is a known cooldown: hold the message instead of wasting a request on that provider.
  const applySavedWindows = () => {
+  // Monthly windows are left out: they often gate one lane only (Z.ai MCP, Copilot premium) while the model still works.
   for (const f of usedFamilies) {
    const w = store.windows(f);
-   for (const win of [w.fiveHour, w.weekly, w.monthly]) {
+   const dismissedUntil = store.dismissedUntil(f);
+   for (const win of [w.fiveHour, w.weekly]) {
     const until = (win?.resetsAt ?? 0) + MARGIN_MS;
-    if (win && win.usedPercent >= 100 && win.resetsAt > Date.now() && until > (dismissed.get(f) ?? 0) && store.cooldown(f) < until - 1000) store.limit(f, until);
+    if (win && win.usedPercent >= 100 && win.resetsAt > Date.now() && until > dismissedUntil + DISMISS_TOLERANCE_MS && store.cooldown(f) < until - 1000) store.limit(f, until);
    }
   }
  };
@@ -216,7 +234,14 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   if (f) usedFamilies.add(f);
   try { applySavedWindows(); refreshWindows(ctx); } catch { /* Window tracking must never block a message. */ }
   if (!f || !plan(ctx, ctx.model) || rpcChild) return;
-  if (store.cooldown(f) > Date.now() && !await waitForReset(ctx, f, true)) ctx.abort?.();
+  let at = 0;
+  try { at = store.cooldown(f); } catch { return; /* An unreadable state dir must never block a message. */ }
+  if (at <= Date.now()) return;
+  if (at - Date.now() > MAX_WAIT_MS) {
+   ctx.ui?.notify?.(`${f} limit resets ${new Date(at).toLocaleString()}, more than 8 days away: messages are not held. /limit-resume cancel clears it.`, "warning");
+   return;
+  }
+  if (!await waitForReset(ctx, f, true)) ctx.abort?.();
  });
  pi.on("before_provider_request", async () => { limitHeaders = undefined; });
  pi.on("after_provider_response", async (event: any, ctx: any) => {
@@ -236,7 +261,13 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   try { refreshWindows(ctx); } catch { /* see before_agent_start */ }
   const last = lastAssistant(event.messages ?? []);
   pendingError = last?.stopReason === "error" ? String(last.errorMessage ?? "") : undefined;
-  if (last?.stopReason && !["error", "aborted"].includes(last.stopReason)) attempts = 0;
+  if (last?.stopReason && !["error", "aborted"].includes(last.stopReason)) {
+   attempts = 0;
+   // A successful answer proves capacity: drop this family's cooldown for every process.
+   const f = familyOf(ctx?.model);
+   // A model-specific cooldown (noRelease) stays: a success on another model of the family proves nothing about it.
+   if (f) try { if (!store.cooldownInfo(f).noRelease) store.clearCooldown(f); } catch { /* Best effort. */ }
+  }
  });
  pi.on("agent_before_settle", async (event: any, ctx: any) => {
   if (event.outcome === "aborted" || ctx.signal?.aborted) return;
@@ -257,7 +288,12 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   }
   const reset = fromHeaders ?? fromMessage ?? fromCache ?? fromNative;
   const wait = Math.max(reset ? reset - Date.now() + MARGIN_MS : PROBE_MS[Math.min(attempts, PROBE_MS.length - 1)], 30_000);
-  store.limit(f, Date.now() + wait);
+  // A real new limit overrides any earlier dismissal. It is kept until its reset when model-specific, or when it
+  // follows a release on fresh windows within 15 minutes (those windows evidently did not see this limit).
+  const noRelease = MODEL_LIMIT.test(err) || Date.now() - (released.get(f) ?? -Infinity) < RELEASE_TRUST_MS;
+  try { store.clearDismiss(f); } catch { /* Best effort. */ }
+  store.limit(f, Date.now() + wait, { noRelease });
+  if (reset) probeAt.delete(f); else probeAt.set(f, Date.now() + wait);
   try {
    store.record({
     at: Date.now(), family: f, model: modelRef(ctx.model), resetAt: Date.now() + wait, error: err.slice(0, 500),
@@ -268,7 +304,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   } catch { /* Diagnostics must never break the wait. */ }
   limitHeaders = undefined;
   if (rpcChild) {
-   ctx.ui?.notify?.(`${f} usage limit reached; it resets at ${new Date(Date.now() + wait - MARGIN_MS).toLocaleString()}. Not waiting inside an RPC session: the host decides.`, "warning");
+   ctx.ui?.notify?.(`${f} usage limit reached; ${reset ? `it resets at ${new Date(reset).toLocaleString()}` : `reset time unknown, next retry at ${new Date(Date.now() + wait).toLocaleString()}`}. Not waiting inside an RPC session: the host decides.`, "warning");
    return;
   }
   if (++attempts > MAX_CONSECUTIVE) {
@@ -280,6 +316,15 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    return { continue: true, entries: [{ type: "custom_message", customType: "usage-limit-resume", content: RESUME_PROMPT, display: false }] };
   }
  });
+ /** Drops the family's cooldown and remembers, for every process, the saved windows it covered. */
+ const dismiss = (f: Family) => {
+  try {
+   const w = store.windows(f);
+   const windows = [w.fiveHour, w.weekly].filter(x => x && x.usedPercent >= 100).map(x => x!.resetsAt + MARGIN_MS);
+   store.dismiss(f, Math.max(store.cooldown(f), Date.now() + MARGIN_MS + 1, ...windows));
+   store.clearCooldown(f);
+  } catch { /* State dir unavailable: the wait still stops. */ }
+ };
  pi.registerCommand("limit-resume", {
   description: "Usage-limit resume: status | now | cancel",
   handler: async (args: string, ctx: any) => {
@@ -288,12 +333,15 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     const waiting = !!wake;
     // Cancel means "stop holding me": drop the saved cooldown too, or the very next message would wait again.
     const f = waitingFamily ?? familyOf(ctx.model);
-    if (f) { dismissed.set(f, Math.max(store.cooldown(f), Date.now() + MARGIN_MS + 1)); store.clearCooldown(f); }
+    if (f) dismiss(f);
     stop(ctx); if (waiting) ctx.abort?.();
     ctx.ui.notify(`Auto-resume cancelled${f ? ` for ${f}; the next message is sent normally` : ""}.`, "info");
    }
    else if (action === "now") {
     attempts = 0;
+    // Like cancel, "now" overrides the saved limit; otherwise the retry itself would be held again.
+    const f = waitingFamily ?? familyOf(ctx.model);
+    if (f) dismiss(f);
     if (wake) { forceRetry = true; wake(true); return; }
     pi.sendUserMessage(RESUME_PROMPT, ctx.isIdle?.() === false ? { deliverAs: "followUp" } : undefined);
    } else {
@@ -309,6 +357,6 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    }
   },
  });
- const resetSession = (ctx: any) => { stop(ctx); dismissed.clear(); pendingError = undefined; limitHeaders = undefined; attempts = 0; forceRetry = false; };
+ const resetSession = (ctx: any) => { stop(ctx); released.clear(); probeAt.clear(); pendingError = undefined; limitHeaders = undefined; attempts = 0; forceRetry = false; };
  pi.on("session_shutdown", async (_event: any, ctx: any) => { resetSession(ctx); });
 }

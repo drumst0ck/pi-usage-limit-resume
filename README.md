@@ -45,12 +45,12 @@ Then restart Pi or run `/reload`. Check it is loaded with `pi list`. Remove it w
    refreshed in the background and never delays your message.
 2. **Holds the turn when a limit is hit** and tells you in the chat which provider is exhausted and when it resets.
    When the time comes it tells the agent to carry on exactly where it stopped. It waits on the same model.
-3. **Holds your next message before wasting a request** if a saved window is already at 100%.
-4. **Releases a stale cooldown by itself.** Before holding a message, and every 3 minutes while waiting, it asks the provider for fresh windows; if none is exhausted (for example you upgraded your plan, or a window reset early) it clears the cooldown and continues.
+3. **Holds your next message before wasting a request** if a saved 5-hour or weekly window is already at 100%. Monthly windows are shown but never hold a message: they often gate one lane only (Z.ai MCP, Copilot premium requests).
+4. **Releases a stale cooldown by itself.** Before holding a message, and every 3 minutes while waiting, it asks the provider for fresh windows; if none is exhausted (for example you upgraded your plan, or a window reset early) it clears the cooldown and continues. It does this at most once per limit: a model-specific limit ("Opus limit") or a limit hit again within 15 minutes of a release is kept until its reset. Any successful answer from that provider also clears its cooldown, in every Pi process.
 
 Details:
 
-- The wait can last up to 8 days, so weekly limits are covered. A margin of 90 seconds is added to the reset time.
+- The wait can last up to 8 days, so weekly limits are covered. A cooldown further away is reported but never holds or drops your messages. When no reset time is known, the notice says "next retry at … (reset time unknown)". A margin of 90 seconds is added to the reset time.
 - With no reset time at all, it probes after 10, 20, 30 and then 60 minutes.
 - After 12 limits in a row without a successful response it stops waiting and tells you.
 - Only subscription plans are tracked: OAuth logins, and the API-key plans marked `apiKey: true`. A pay-as-you-go API key
@@ -62,8 +62,8 @@ Details:
 | Command | Effect |
 |---|---|
 | `/limit-resume status` | Shows whether it is waiting, every active cooldown, and the saved 5h, weekly and monthly usage and reset time of each provider. |
-| `/limit-resume now` | Stops waiting and retries immediately. When nothing is being waited on, it sends the resume prompt. |
-| `/limit-resume cancel` | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. A new limit error waits again. |
+| `/limit-resume now` | Stops waiting, drops the saved cooldown and retries immediately. When nothing is being waited on, it sends the resume prompt. |
+| `/limit-resume cancel` | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. The dismissal is shared by every Pi process and survives restarts; a new limit error waits again. |
 
 ## How the reset time is found
 
@@ -164,7 +164,7 @@ to wait for. It does not impersonate other clients: requests carry an honest `Us
 ## State files and troubleshooting
 
 Everything lives in the state directory as small JSON files: cooldowns, saved windows (`windows-<family>.json`) and
-`last-limit.json`, the last limit event, and `limit-history.jsonl`, the last 50 events (one JSON per line, all providers). Its `source` field tells which step produced the reset time: `headers`,
+`last-limit.json`, the last limit event, and `limit-history.jsonl`, the recent events (one JSON per line, all providers; appended, trimmed to the last 50 once it passes 100), and `dismissed-<family>.json` after cancel/now. Its `source` field tells which step produced the reset time: `headers`,
 `message`, `headers-cache`, `usage-endpoint`, `claude-cli`, `native` or `probe`.
 
 | Symptom | Check |

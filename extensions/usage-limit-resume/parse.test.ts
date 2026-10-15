@@ -98,3 +98,15 @@ test('month-day resets still work and a weekday word never breaks them',()=>{
  assert.equal(iso(parseResetTime('resets Oct 20 at 6pm (UTC)',NOW)!),'2026-10-20T18:00:00.000Z');
  assert.equal(parseResetTime('resets Foo 7pm (UTC)',NOW),undefined);
 });
+
+test('a 5xx-looking number inside a real limit message is not treated as transient (S8)',()=>{
+ assert.equal(isUsageLimitError('Quota exceeded for this plan; retry in 512s'),true);
+ assert.equal(isUsageLimitError('Insufficient quota: 550 requests used'),true);
+ assert.equal(isUsageLimitError('HTTP 503 Service Unavailable'),false);
+ assert.equal(isUsageLimitError('error 500: rate limit backend failure'),false);
+});
+test('a month/day reset that just passed is not rolled to next year (S6)',()=>{
+ const t=parseResetTime('resets Oct 14 at 10:30am (UTC)',NOW)!;
+ assert.equal(iso(t),'2026-10-14T10:30:00.000Z');
+ assert.equal(iso(parseResetTime('resets Oct 10 at 10am (UTC)',NOW)!),'2027-10-10T10:00:00.000Z');
+});

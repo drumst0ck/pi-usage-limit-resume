@@ -148,10 +148,17 @@ test('cancel is not undone by a saved exhausted window of the same reset, but a 
  await h.headers(3600); const q = h.error(); await settle();
  assert.ok(h.store.cooldown('claude') > Date.now()); next.abort(); await q;
 });
-test('now ends the wait once, without clearing the saved limit', async t => {
+test('now ends the wait once AND drops the saved limit, so the retry and the next message are not held again (S1)', async t => {
  const h = harness(t); const p = h.error(); await settle();
  await h.commands['limit-resume'].handler('now', h.ctx);
- assert.equal((await p)?.continue, true); assert.ok(h.store.cooldown('claude') > Date.now()); assert.ok(h.timers.every(x => x.cancelled));
+ assert.equal((await p)?.continue, true); assert.equal(h.store.cooldown('claude'), 0); assert.ok(h.timers.every(x => x.cancelled));
+ await h.handlers.before_agent_start({}, h.ctx); assert.equal(h.abortCalls, 0); assert.equal(h.pending(), 0);
+});
+test('now while idle with a saved cooldown sends the resume prompt and it is not held (S1)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000); h.ctx.isIdle = () => true;
+ await h.commands['limit-resume'].handler('now', h.ctx);
+ assert.equal(h.sent.length, 1); assert.equal(h.store.cooldown('claude'), 0);
+ await h.handlers.before_agent_start({}, h.ctx); assert.equal(h.pending(), 0);
 });
 test('shutdown resolves an active wait and clears the status line', async t => {
  const h = harness(t); const p = h.error(); await settle(); await h.handlers.session_shutdown({}, h.ctx);
@@ -226,12 +233,12 @@ test('Codex headers at 100% hold the next Codex message', async t => {
  await h.handlers.after_provider_response({ status: 200, headers: { 'x-codex-primary-used-percent': '100', 'x-codex-primary-window-minutes': '300', 'x-codex-primary-reset-at': String(sec(n) + 7200) } }, h.ctx);
  const p = h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(h.pending(), 1); h.controller.abort(); await p;
 });
-test('a weekly window at 100% blocks until the weekly reset; a monthly one until the monthly reset', async t => {
+test('a weekly window at 100% blocks until the weekly reset; a saved monthly one never holds a message (S6)', async t => {
  const week = Date.now() + 4 * 86400_000, month = Date.now() + 20 * 86400_000;
  const a = harness(t); a.store.setWindows('claude', { fiveHour: { usedPercent: 10, resetsAt: Date.now() + 3600_000 }, weekly: { usedPercent: 100, resetsAt: week } });
  const pa = a.handlers.before_agent_start({}, a.ctx); await settle(); assert.ok(a.store.cooldown('claude') >= week); a.controller.abort(); await pa;
  const b = harness(t, { current: codex }); b.store.setWindows('codex', { monthly: { usedPercent: 100, resetsAt: month } });
- const pb = b.handlers.before_agent_start({}, b.ctx); await settle(); assert.ok(b.store.cooldown('codex') >= month); b.controller.abort(); await pb;
+ await b.handlers.before_agent_start({}, b.ctx); assert.equal(b.store.cooldown('codex'), 0); assert.equal(b.abortCalls, 0); assert.equal(b.pending(), 0);
 });
 
 // ---------------------------------------------------------------- families: any Pi provider
@@ -473,7 +480,8 @@ test('the claude CLI is refreshed more rarely than the 5 minute cycle, since eac
  h.advance(11 * 60_000); await h.handlers.before_agent_start({}, h.ctx); await settle(); assert.equal(n, first + 1);
 });
 test('the first Claude limit with nothing saved reads /usage from the CLI', async t => {
- const h = harness(t, { claudeCli: async () => cliText.replace('56%', '100%') });
+ const soon = new Date(Date.now() + 2 * 86400_000); const md = `${soon.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })} ${soon.getUTCDate()}`;
+ const h = harness(t, { claudeCli: async () => cliText.replace('56%', '100%').replace('Oct 14 at 6:50pm (Europe/Madrid)', `${md} at 6pm (UTC)`) });
  const done = await h.hit(`429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."}}`);
  assert.equal(lastLimit(h).source, 'claude-cli'); await done();
 });
@@ -530,15 +538,85 @@ test('every limit event is appended to a capped history, not only the last one',
  const lines = readFileSync(join(h.dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
  assert.equal(lines.length, 3); assert.ok(lines.every(l => l.family === 'claude')); assert.equal(lastLimit(h).family, 'claude');
 });
-test('the history keeps only the most recent 50 events', t => {
+test('the history is appended and bounded: trimmed to the last 50 once it passes 100 (S10)', t => {
  const dir = mkdtempSync(join(tmpdir(), 'pi-quota-hist-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
- const s = new SharedState(dir);
+ const s = new SharedState(dir); const read = () => readFileSync(join(dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
  for (let i = 0; i < 60; i++) s.record({ n: i });
- const lines = readFileSync(join(dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
- assert.equal(lines.length, 50); assert.equal(lines[0].n, 10); assert.equal(lines[49].n, 59);
+ assert.equal(read().length, 60);
+ for (let i = 60; i < 101; i++) s.record({ n: i });
+ const l = read(); assert.equal(l.length, 50); assert.equal(l[49].n, 100);
 });
 test('/limit-resume status lists active cooldowns, even for a family with no windows', async t => {
  const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
  await h.commands['limit-resume'].handler('status', h.ctx);
  assert.match(h.notes.join('\n'), /claude: cooldown until/);
+});
+
+// ---------------------------------------------------------------- review hardening (odd/tasks/review-hardening.md)
+test('a dismissal persists across processes and tolerates a slightly later reset from another source (S2)', async t => {
+ const reset = Date.now() + 3 * 3600_000;
+ const h = harness(t); await h.headers(3 * 3600); const p = h.error(); await settle();
+ await h.commands['limit-resume'].handler('cancel', h.ctx); await p;
+ h.store.setWindows('claude', { fiveHour: { usedPercent: 100, resetsAt: reset + 60_000 } });
+ const other = h.child(); await other.handlers.before_agent_start({}, other.ctx);
+ assert.equal(h.store.cooldown('claude'), 0); assert.equal(other.abortCalls, 0); assert.equal(h.pending(), 0);
+});
+test('a new real limit overrides an earlier dismissal (S2)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
+ await h.commands['limit-resume'].handler('cancel', h.ctx);
+ const c = h.child(); await c.headers(1800); const p = c.error(); await settle();
+ assert.ok(h.store.cooldown('claude') > Date.now()); c.controller.abort(); await p;
+});
+const healthy2 = () => ({ fiveHour: { usedPercent: 5, resetsAt: Date.now() + 5 * 3600_000 }, weekly: { usedPercent: 5, resetsAt: Date.now() + 86400_000 } });
+test('a model-specific limit is not released by healthy account windows (S3)', async t => {
+ const h = harness(t, { nativeSources: { claude: async () => healthy2() } });
+ await h.headers(3600); const p = h.error('You have reached your Opus limit'); await settle();
+ h.advance(240_000); await settle();
+ assert.ok(h.store.cooldown('claude') > Date.now()); assert.equal(h.pending(), 1); h.controller.abort(); await p;
+});
+test('a limit hit again soon after a release is not released a second time (S3)', async t => {
+ const h = harness(t, { nativeSources: { claude: async () => healthy2() } });
+ h.store.limit('claude', Date.now() + 3600_000);
+ await h.handlers.before_agent_start({}, h.ctx); assert.equal(h.store.cooldown('claude'), 0);
+ await h.headers(3600); const p = h.error(); await settle(); h.advance(240_000); await settle();
+ assert.ok(h.store.cooldown('claude') > Date.now()); assert.equal(h.pending(), 1); h.controller.abort(); await p;
+});
+test('a release check that finishes after cancel neither clears nor announces (S4)', async t => {
+ let finish: any; const h = harness(t, { nativeSources: { claude: () => new Promise(r => finish = r) } });
+ h.store.limit('claude', Date.now() + 3600_000);
+ const p = h.handlers.before_agent_start({}, h.ctx); await settle();
+ h.controller.abort(); h.store.limit('claude', Date.now() + 7200_000); finish(healthy2()); await p; await settle();
+ assert.ok(h.store.cooldown('claude') > Date.now()); assert.ok(!h.notes.some(n => /capacity again/.test(n)));
+});
+test('a waiting process resumes within one tick when another process clears the cooldown (S5)', async t => {
+ const h = harness(t); await h.headers(3 * 3600); const p = h.error(); await settle();
+ h.store.clearCooldown('claude'); h.advance(60_000);
+ assert.equal((await p)?.continue, true);
+});
+test('a successful response clears the family cooldown (S7)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
+ await h.handlers.agent_end({ messages: [{ role: 'assistant', stopReason: 'stop' }] }, h.ctx);
+ assert.equal(h.store.cooldown('claude'), 0);
+});
+test('a cooldown more than 8 days away never aborts messages; it is reported with its date (S6)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 20 * 86400_000);
+ await h.handlers.before_agent_start({}, h.ctx);
+ assert.equal(h.abortCalls, 0); assert.equal(h.pending(), 0); assert.match(h.notes.join('\n'), /claude.*more than 8 days/);
+});
+test('a probe wait says the reset time is unknown (S9)', async t => {
+ const h = harness(t); const p = h.error(); await settle();
+ assert.match(h.messages[0][0].content, /next retry at .*reset time unknown/); h.controller.abort(); await p;
+});
+test('the status line names the family and how to cancel; each held message is announced (S9)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
+ const p1 = h.handlers.before_agent_start({}, h.ctx); await settle();
+ assert.match(String(h.statuses.at(-1)[1]), /claude.*\/limit-resume cancel/);
+ h.controller.abort(); await p1;
+ const c = h.child(); const p2 = c.handlers.before_agent_start({}, c.ctx); await settle();
+ assert.equal(c.messages.length, 1); c.controller.abort(); await p2;
+});
+test('a success on another model of the family does not clear a model-specific cooldown (S3, S7)', async t => {
+ const h = harness(t); h.store.limit('claude', Date.now() + 3600_000, { noRelease: true });
+ await h.handlers.agent_end({ messages: [{ role: 'assistant', stopReason: 'stop' }] }, h.ctx);
+ assert.ok(h.store.cooldown('claude') > Date.now());
 });
