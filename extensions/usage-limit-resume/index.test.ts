@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import extension from './index.ts';
@@ -29,7 +29,7 @@ function harness(t: any, o: any = {}) {
  Date.now = () => clock;
  globalThis.setTimeout = ((fn: any, ms: number) => { const timer = { fn, at: clock + ms, ms, cancelled: false }; timers.push(timer); return timer; }) as any;
  globalThis.clearTimeout = ((timer: any) => { if (timer) timer.cancelled = true; }) as any;
- const store = new SharedState(dir, () => clock);
+ const store = o.store ?? new SharedState(dir, () => clock);
  if (!o.refresh) for (const f of KNOWN) store.touch(f);   // window refresh is opt-in per test
  const children: any[] = [];
  function child(opts: any = {}) {
@@ -193,7 +193,8 @@ test('the main interactive session is detected by the absence of --mode rpc, inc
 test('too many consecutive limit errors stop the automatic waiting', async t => {
  const h = harness(t); await h.headers(60);
  for (let i = 0; i < 12; i++) { const p = h.error(); await settle(); h.advance(200_000); assert.equal((await p)?.continue, true); await h.headers(60); }
- assert.equal(await h.error(), undefined); assert.match(h.notes.join('\n'), /Too many/);
+ assert.equal(await h.error(), undefined);
+ assert.match(h.notes.join('\n'), /Too many consecutive.*claude stays limited until .*\/limit-resume cancel clears it.*\/limit-resume now retries/s);
 });
 test('a successful response resets the consecutive counter and clears stale reset headers', async t => {
  const h = harness(t); await h.headers(18000); await h.handlers.after_provider_response({ status: 200, headers: {} }, h.ctx);
@@ -538,13 +539,16 @@ test('every limit event is appended to a capped history, not only the last one',
  const lines = readFileSync(join(h.dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
  assert.equal(lines.length, 3); assert.ok(lines.every(l => l.family === 'claude')); assert.equal(lastLimit(h).family, 'claude');
 });
-test('the history is appended and bounded: trimmed to the last 50 once it passes 100 (S10)', t => {
+test('the history is appended and rotated past 100 lines without losing any event (S10, S16)', t => {
  const dir = mkdtempSync(join(tmpdir(), 'pi-quota-hist-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
- const s = new SharedState(dir); const read = () => readFileSync(join(dir, 'limit-history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+ const s = new SharedState(dir);
+ const read = (n: string) => { try { return readFileSync(join(dir, n), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
  for (let i = 0; i < 60; i++) s.record({ n: i });
- assert.equal(read().length, 60);
- for (let i = 60; i < 101; i++) s.record({ n: i });
- const l = read(); assert.equal(l.length, 50); assert.equal(l[49].n, 100);
+ assert.equal(read('limit-history.jsonl').length, 60);
+ for (let i = 60; i < 250; i++) s.record({ n: i });
+ const cur = read('limit-history.jsonl'), old = read('limit-history.1.jsonl');
+ assert.ok(cur.length <= 100); assert.ok(old.length <= 101); assert.ok(old.length + cur.length >= 100);
+ assert.equal(cur.at(-1).n, 249); assert.deepEqual([...old, ...cur].map(e => e.n), [...old, ...cur].map((_, i) => 250 - old.length - cur.length + i));
 });
 test('/limit-resume status lists active cooldowns, even for a family with no windows', async t => {
  const h = harness(t); h.store.limit('claude', Date.now() + 3600_000);
@@ -619,4 +623,25 @@ test('a success on another model of the family does not clear a model-specific c
  const h = harness(t); h.store.limit('claude', Date.now() + 3600_000, { noRelease: true });
  await h.handlers.agent_end({ messages: [{ role: 'assistant', stopReason: 'stop' }] }, h.ctx);
  assert.ok(h.store.cooldown('claude') > Date.now());
+});
+
+test('session start removes expired and corrupt cooldown files of every family (S13)', async t => {
+ const h = harness(t);
+ const id = '00000000-0000-4000-8000-000000000000';
+ writeFileSync(join(h.dir, `cooldown-zai-${id}.json`), JSON.stringify({ at: Date.now() - 1000 }));
+ writeFileSync(join(h.dir, `cooldown-kimi-${id}.json`), '{broken');
+ h.store.limit('codex', Date.now() + 3600_000);
+ await h.handlers.session_start({ reason: 'startup' }, h.ctx);
+ const left = readdirSync(h.dir).filter(n => n.startsWith('cooldown-'));
+ assert.equal(left.length, 1); assert.match(left[0], /^cooldown-codex-/); assert.ok(h.store.cooldown('codex') > Date.now());
+});
+test('an unusable state directory never breaks a message or a wait; the user is told once (S14)', async t => {
+ const base = mkdtempSync(join(tmpdir(), 'pi-quota-bad-')); t.after(() => rmSync(base, { recursive: true, force: true }));
+ writeFileSync(join(base, 'file'), 'x');
+ const h = harness(t, { store: new SharedState(join(base, 'file', 'state')) });
+ await h.handlers.before_agent_start({}, h.ctx); assert.equal(h.abortCalls, 0);
+ await h.headers(3600); const p = h.error(); await settle();
+ assert.equal(h.pending(), 1);
+ h.advance(3600_000 + 91_000); assert.equal((await p)?.continue, true);
+ assert.equal(h.notes.filter(n => /state directory/i.test(n)).length, 1);
 });

@@ -229,7 +229,18 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   }
  };
 
+ let stateWarned = false;
+ const warnState = (ctx: any) => {
+  if (!store.failed || stateWarned) return;
+  stateWarned = true;
+  ctx?.ui?.notify?.(`Usage-limit state directory ${store.directory} is not usable (${store.failed.message}); limits are kept in memory for this Pi only.`, "warning");
+ };
+ pi.on("session_start", async (_event: any, ctx: any) => {
+  try { store.gc(); } catch { /* Best effort. */ }
+  warnState(ctx);
+ });
  pi.on("before_agent_start", async (_event: any, ctx: any) => {
+  warnState(ctx);
   const f = familyOf(ctx.model);
   if (f) usedFamilies.add(f);
   try { applySavedWindows(); refreshWindows(ctx); } catch { /* Window tracking must never block a message. */ }
@@ -293,6 +304,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   const noRelease = MODEL_LIMIT.test(err) || Date.now() - (released.get(f) ?? -Infinity) < RELEASE_TRUST_MS;
   try { store.clearDismiss(f); } catch { /* Best effort. */ }
   store.limit(f, Date.now() + wait, { noRelease });
+  warnState(ctx);
   if (reset) probeAt.delete(f); else probeAt.set(f, Date.now() + wait);
   try {
    store.record({
@@ -308,7 +320,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    return;
   }
   if (++attempts > MAX_CONSECUTIVE) {
-   ctx.ui?.notify?.("Too many consecutive usage limits; stopped waiting. /limit-resume now to retry.", "warning"); return;
+   ctx.ui?.notify?.(`Too many consecutive usage limits; stopped waiting. ${f} stays limited until ${new Date(store.cooldown(f)).toLocaleString()}: your next ${f} message waits for it. /limit-resume cancel clears it, /limit-resume now retries.`, "warning"); return;
   }
   // Keep the boundary open during the wait: Gentle must NOT receive agent_settled yet.
   if (await waitForReset(ctx, f)) {

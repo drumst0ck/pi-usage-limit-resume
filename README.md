@@ -164,7 +164,7 @@ to wait for. It does not impersonate other clients: requests carry an honest `Us
 ## State files and troubleshooting
 
 Everything lives in the state directory as small JSON files: cooldowns, saved windows (`windows-<family>.json`) and
-`last-limit.json`, the last limit event, and `limit-history.jsonl`, the recent events (one JSON per line, all providers; appended, trimmed to the last 50 once it passes 100), and `dismissed-<family>.json` after cancel/now. Its `source` field tells which step produced the reset time: `headers`,
+`last-limit.json`, the last limit event, and `limit-history.jsonl`, the recent events (one JSON per line, all providers; appended; past 100 lines it is moved to `limit-history.1.jsonl`), and `dismissed-<family>.json` after cancel/now. Its `source` field tells which step produced the reset time: `headers`,
 `message`, `headers-cache`, `usage-endpoint`, `claude-cli`, `native` or `probe`.
 
 | Symptom | Check |
@@ -172,6 +172,7 @@ Everything lives in the state directory as small JSON files: cooldowns, saved wi
 | The wait looks wrong | Read `last-limit.json` and look at `source` and `resetAt`. |
 | It waits too long | `/limit-resume status`, then `/limit-resume now` or `cancel`. |
 | Nothing is saved for a provider | Use that provider once with a plan login, then run `/limit-resume status`. Providers without a native source only learn windows from response headers. |
+| The state directory is not writable | Pi warns once and keeps limits in memory for that Pi only; fix the permissions or set `PI_USAGE_LIMIT_STATE_DIR`. Expired or unreadable cooldown files are removed at session start. |
 | A stale cooldown | Normally released automatically when the provider reports capacity. If it has no usage source, delete the `cooldown-<family>-*.json` files from the state directory. |
 | Config is ignored | Check the file is valid JSON and the family id is lowercase. |
 
