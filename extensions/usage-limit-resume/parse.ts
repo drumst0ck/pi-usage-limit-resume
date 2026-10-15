@@ -49,10 +49,33 @@ function parseRelativeReset(msg: string, nowMs: number): number | undefined {
 	return total > 0 ? nowMs + total : undefined;
 }
 
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const WEEKDAY_RESET = /(?:resets?(?: at)?|try again at|reset at)\s+(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?,?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)(?:\s*\(([A-Za-z_]+\/[A-Za-z_\-+0-9/]+|UTC)\))?/i;
+
+/** "resets Mon 7pm (Europe/Madrid)": the next time that weekday reaches that wall-clock time in the stated zone. */
+function parseWeekdayReset(msg: string, nowMs: number): number | undefined {
+	const m = msg.match(WEEKDAY_RESET);
+	if (!m) return undefined;
+	const [, day, hh, mm, ap, zoneRaw] = m;
+	const zone = zoneRaw && zoneRaw.toUpperCase() !== "UTC" ? zoneRaw : zoneRaw ? "UTC" : undefined;
+	const h = (+hh % 12) + (/^p/i.test(ap) ? 12 : 0);
+	try {
+		const z = new Date(nowMs + zoneOffsetMs(zone, nowMs));
+		const ahead = (WEEKDAYS.indexOf(day.toLowerCase()) - z.getUTCDay() + 7) % 7;
+		let t = wallToInstant(z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate() + ahead, h, mm ? +mm : 0, zone);
+		if (t <= nowMs) t = wallToInstant(z.getUTCFullYear(), z.getUTCMonth(), z.getUTCDate() + ahead + 7, h, mm ? +mm : 0, zone);
+		return t;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Returns the next reset instant (epoch ms) found in the message, or undefined. */
 export function parseResetTime(msg: string, now: Date): number | undefined {
 	const relative = parseRelativeReset(msg, now.getTime());
 	if (relative !== undefined) return relative;
+	const weekday = parseWeekdayReset(msg, now.getTime());
+	if (weekday !== undefined) return weekday;
 	const m = msg.match(
 		/(?:resets?(?: at)?|try again at|reset at)\s+(?:(?:([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?)(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)(?:\s*\(([A-Za-z_]+\/[A-Za-z_\-+0-9/]+|UTC)\))?/i,
 	);

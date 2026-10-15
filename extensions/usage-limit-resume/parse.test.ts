@@ -86,3 +86,15 @@ test('claude /usage text becomes 5h and weekly windows',()=>{
  assert.equal(claudeCliWindows(undefined,NOW.getTime()),undefined);
 });
 
+
+test('weekday resets: next occurrence of that day, in the stated zone',()=>{
+ assert.equal(iso(parseResetTime('Your limit resets Mon 7pm (UTC)',NOW)!),'2026-10-19T19:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets Monday at 7:30 PM (UTC)',NOW)!),'2026-10-19T19:30:00.000Z');
+ assert.equal(iso(parseResetTime('resets Wed 3pm (UTC)',NOW)!),'2026-10-14T15:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets Wed 9am (UTC)',NOW)!),'2026-10-21T09:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets Tues, 8am (Europe/Madrid)',NOW)!),'2026-10-20T06:00:00.000Z');
+});
+test('month-day resets still work and a weekday word never breaks them',()=>{
+ assert.equal(iso(parseResetTime('resets Oct 20 at 6pm (UTC)',NOW)!),'2026-10-20T18:00:00.000Z');
+ assert.equal(parseResetTime('resets Foo 7pm (UTC)',NOW),undefined);
+});
