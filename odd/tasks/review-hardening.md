@@ -42,10 +42,10 @@ Read until `## Log`.
 - T5 S11 inline [x] b2dd573
 - T6 S12 inline [x] 6695bb5
 - T7 S13-S16 inline [x] 033f291
-- T8 S17,S18,S27 inline
-- T9 S19,S20,S21,S22,S25 inline
-- T10 S23,S24 inline
-- T11 S26,S28 inline
+- T8 S17,S18,S27 inline [x] (commit after T8)
+- T9 S19,S20,S21,S22,S25 inline [x] 716958a
+- T10 S23,S24 inline [x] 5eadb5d
+- T11 S26,S28 inline [x] 41c8537
 
 ## Log
 - L1 "usa opues 5.5 como orquestador para revisar todo esto buscar posibles errores y bugs y mejorar el producto"
@@ -55,3 +55,4 @@ Read until `## Log`.
 - L5 "sigue con lo pendiente": open items from L2/L4 become S11-S16.
 - L6 RED observed per task; verify: S11,S13,S15 met; S12/S14/S16 partial -> fixed W1 (lowercase word not a zone, unknown uppercase bare zone -> no reset), W2 (memory wins over stale files, failed deletes hidden), W3 (rotation ENOENT not a failure) in 1c568cf. 303/303 + typecheck. Not done: two-process rotation test, W4 shuttingDown single flag (not reproduced).
 - L7 "busca posibles bugs y fallos": judges round 2 on da98990, 22 rows; Pi 1.2.0 source confirmed: no ctx.signal in boundaries (agent.signal = activeRun?.signal), sendMessage steers while streaming and hasQueuedMessages forces continue, teardownCurrent aborts before session_shutdown. Declined: JD-A-006 (ctx.mode; argv kept, documented), JD-A-003 (gemini per-model buckets: follow-up), JD-B-011 (rotation race: diagnostic only).
+- L8 RED observed per task (T8: 2, T9: 5, T10: 3, T11: 3 tests). Verify: S17-S28 met; fixed its WARNING (daily/monthly false positives) + README cadence in ec9e2bb. 317/317 + typecheck. Left as suggestions: periodic/refreshWindows may double-fetch; a resume waits for pending.at even if released elsewhere; README does not mention aborted waits leave a resume record.
