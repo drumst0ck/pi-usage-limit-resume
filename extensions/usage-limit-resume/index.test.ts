@@ -517,7 +517,7 @@ test('while waiting, a plan upgrade is noticed and the task continues without wa
  let up = false;
  const h = harness(t, { nativeSources: { claude: async () => up ? healthy() : { fiveHour: { usedPercent: 100, resetsAt: Date.now() + 3 * 3600_000 } } } });
  await h.headers(3 * 3600); const p = h.error(); await settle();
- up = true; h.advance(60_000); await settle(); h.advance(60_000); await settle(); h.advance(120_000); await settle();
+ up = true; for (let i = 0; i < 16; i++) { h.advance(60_000); await settle(); }   // claude refresh throttle: 15 min
  const r = await p;
  assert.equal(r.continue, true); assert.equal(h.store.cooldown('claude'), 0);
 });
@@ -733,4 +733,37 @@ test('now during the preflight provider check forces the retry without a second 
  finish(undefined); await p;
  assert.equal(h.sent.length, 0); assert.equal(h.abortCalls, 0); assert.equal(h.store.cooldown('claude'), 0); assert.equal(h.pending(), 0);
  await h.headers(3600); const q = h.error(); await settle(); assert.equal(h.pending(), 1); h.controller.abort(); await q;
+});
+test('an exhausted monthly window never sets the wait and never vetoes a release (S19)', async t => {
+ const month = Date.now() + 20 * 86400_000;
+ const h = harness(t, { nativeSources: { claude: async () => ({ fiveHour: { usedPercent: 100, resetsAt: Date.now() + 2 * 3600_000 }, monthly: { usedPercent: 100, resetsAt: month } }) } });
+ const p = h.error(); await settle();
+ assert.ok(h.store.cooldown('claude') < Date.now() + 3 * 3600_000); h.controller.abort(); await p;
+ const g = harness(t, { nativeSources: { claude: async () => ({ fiveHour: { usedPercent: 3, resetsAt: Date.now() + 3600_000 }, monthly: { usedPercent: 100, resetsAt: month } }) } });
+ g.store.limit('claude', Date.now() + 3600_000);
+ await g.handlers.before_agent_start({}, g.ctx); assert.equal(g.store.cooldown('claude'), 0);
+});
+test('a model-specific cooldown holds only that model; another model of the family goes through (S20)', async t => {
+ const h = harness(t); await h.headers(3600); const p = h.error('You have reached your Opus limit'); await settle(); h.controller.abort(); await p;
+ const c = h.child({ current: { provider: 'anthropic', id: 'claude-sonnet-5-5' } });
+ await c.handlers.before_agent_start({}, c.ctx); assert.equal(c.abortCalls, 0); assert.equal(h.pending(), 0);
+ assert.ok(h.store.cooldown('claude') > Date.now());
+ const d = h.child({ current: claude }); const q = d.handlers.before_agent_start({}, d.ctx); await settle(); assert.equal(h.pending(), 1); d.controller.abort(); await q;
+});
+test('the release check during a wait respects the shared refresh throttle (S21)', async t => {
+ let calls = 0; const h = harness(t, { nativeSources: { claude: async () => { calls++; return { fiveHour: { usedPercent: 100, resetsAt: Date.now() + 5 * 3600_000 } }; } } });
+ await h.headers(5 * 3600); const p = h.error(); await settle();
+ for (let i = 0; i < 60; i++) { h.advance(60_000); await settle(); }
+ assert.ok(calls <= 5, `calls=${calls}`); h.controller.abort(); await p;
+});
+test('a success clears the cooldown only when the model is on a plan (S22)', async t => {
+ const h = harness(t, { apiOnly: ['anthropic'] }); h.store.limit('claude', Date.now() + 3600_000);
+ await h.handlers.agent_end({ messages: [{ role: 'assistant', stopReason: 'stop' }] }, h.ctx);
+ assert.ok(h.store.cooldown('claude') > Date.now());
+});
+test('a dismissal from another process stops the other waiters without a resume prompt (S25)', async t => {
+ const h = harness(t); await h.headers(3600); const p = h.error(); await settle();
+ const other = h.child(); await other.commands['limit-resume'].handler('cancel', other.ctx);
+ h.advance(60_000); await settle();
+ assert.equal(await p, undefined); assert.equal(h.sent.length, 0);
 });

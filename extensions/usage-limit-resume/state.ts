@@ -62,7 +62,8 @@ export class SharedState {
  }
  cooldown(f: Family): number { return this.cooldownInfo(f).at; }
  /** Latest active cooldown of a family, and whether any active one must not be released by fresh windows. */
- cooldownInfo(f: Family): { at: number; noRelease: boolean } {
+ /** `model` is set when the cooldown is specific to one model (an "Opus limit"): other models of the family go through. */
+ cooldownInfo(f: Family, model?: string): { at: number; noRelease: boolean } {
   const files = this.names();
   let at = 0, noRelease = false;
   const own = new RegExp(`^cooldown-${f.replace(/[^a-z0-9-]/gi, "")}-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\\.json$`);
@@ -70,6 +71,7 @@ export class SharedState {
    const entry = this.read(name);
    if (!Number.isFinite(entry?.at)) continue;
    if (entry.at <= this.now()) { this.remove(name); continue; }
+   if (model !== undefined && typeof entry.model === "string" && entry.model !== model) continue;
    at = Math.max(at, entry.at);
    if (entry.noRelease) noRelease = true;
   }
@@ -92,9 +94,9 @@ export class SharedState {
    if (!Number.isFinite(entry?.at) || entry.at < this.now() - 7 * 86400_000) this.remove(name);
   }
  }
- limit(f: Family, at: number, meta: { noRelease?: boolean } = {}): void {
+ limit(f: Family, at: number, meta: { noRelease?: boolean; model?: string } = {}): void {
   if (!Number.isFinite(at)) throw new Error("Invalid quota reset instant");
-  this.write(`cooldown-${f}-${randomUUID()}.json`, meta.noRelease ? { at, noRelease: true } : { at });
+  this.write(`cooldown-${f}-${randomUUID()}.json`, { at, ...(meta.noRelease ? { noRelease: true } : {}), ...(meta.model ? { model: meta.model } : {}) });
  }
  /** The user dismissed this family's limit until `until` (cancel/now): shared by every process, survives restarts. */
  dismiss(f: Family, until: number): void { this.write(`dismissed-${f}.json`, { until }); }

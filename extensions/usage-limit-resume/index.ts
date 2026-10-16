@@ -142,15 +142,21 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
  const announced = new Set<number>();
  // The provider's fresh windows beat a saved cooldown: with no exhausted window the plan has capacity again.
  // Never for a model-specific limit or one hit again soon after a release: the account windows cannot see those.
- const releaseIfHealthy = async (ctx: any, f: Family, epoch: number): Promise<boolean> => {
+ const releaseIfHealthy = async (ctx: any, f: Family, epoch: number, periodic = false): Promise<boolean> => {
   if (store.cooldownInfo(f).noRelease) return false;
+  // The periodic check during a wait shares the refresh throttle with every process: a weekly wait must not spawn
+  // the Claude CLI every 3 minutes. The preflight check is one per user message and always runs.
+  if (periodic) {
+   if (Date.now() - (store.windows(f).checkedAt ?? 0) < (f === "claude" ? CLAUDE_CLI_REFRESH_MS : REFRESH_MS)) return false;
+   try { store.touch(f); } catch { /* Best effort. */ }
+  }
   const w = await withTimeout<Windows | undefined>(nativeWindows(f, ctx), undefined, NATIVE_TIMEOUT_MS);
   if (!w) return false;
   store.setWindows(f, w);
   // Cancelled, aborted or superseded while the provider answered: the answer must not change anything.
   if (epoch !== generation || ctx.signal?.aborted || store.cooldownInfo(f).noRelease) return false;
   const now = Date.now();
-  const list = [w.fiveHour, w.weekly, w.monthly].filter(Boolean);
+  const list = [w.fiveHour, w.weekly].filter(Boolean);   // monthly windows gate one lane only: no veto
   if (!list.length || list.some(x => x!.usedPercent >= 100 && x!.resetsAt > now)) return false;
   store.clearCooldown(f);
   released.set(f, Date.now());
@@ -167,8 +173,12 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   let first = preflight;
   if (preflight) announced.clear();   // every held message is announced
   while (epoch === generation && !ctx.signal?.aborted) {
-   const at = store.cooldown(f);
-   if (at <= Date.now()) return true;
+   const at = store.cooldownInfo(f, modelRef(ctx.model)).at;
+   if (at <= Date.now()) {
+    // Cleared by cancel/now in another process: that user wanted the waiting to stop, not a resume prompt here.
+    if (!preflight && store.dismissedUntil(f) > Date.now()) return false;
+    return true;
+   }
    // A saved cooldown can be stale (plan upgraded, window reset early): ask the provider before holding the message.
    if (first) {
     first = false;
@@ -178,7 +188,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     continue;
    }
    if (!announced.has(at)) { announced.clear(); announced.add(at); announce(ctx, f, at); }
-   if (!await waitUntil(ctx, at, f, () => releaseIfHealthy(ctx, f, epoch), () => store.cooldown(f) < at - 1000)) return false;
+   if (!await waitUntil(ctx, at, f, () => releaseIfHealthy(ctx, f, epoch, true), () => store.cooldown(f) < at - 1000)) return false;
    if (forceRetry) { forceRetry = false; return true; }
    // Another process may have extended the account cooldown. Re-read before resuming.
   }
@@ -289,7 +299,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   try { applySavedWindows(); refreshWindows(ctx); } catch { /* Window tracking must never block a message. */ }
   if (!f || !plan(ctx, ctx.model) || rpcChild) return;
   let at = 0;
-  try { at = store.cooldown(f); } catch { return; /* An unreadable state dir must never block a message. */ }
+  try { at = store.cooldownInfo(f, modelRef(ctx.model)).at; } catch { return; /* An unreadable state dir must never block a message. */ }
   if (at <= Date.now()) return;
   if (at - Date.now() > MAX_WAIT_MS) {
    ctx.ui?.notify?.(`${f} limit resets ${new Date(at).toLocaleString()}, more than 8 days away: messages are not held. /limit-resume cancel clears it.`, "warning");
@@ -317,10 +327,11 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   pendingError = last?.stopReason === "error" ? String(last.errorMessage ?? "") : undefined;
   if (last?.stopReason && !["error", "aborted"].includes(last.stopReason)) {
    attempts = 0;
-   // A successful answer proves capacity: drop this family's cooldown for every process.
+   // A successful answer on a plan model proves capacity: drop this family's cooldown for every process.
+   // A pay-as-you-go key of the same provider says nothing about the plan.
    const f = familyOf(ctx?.model);
    // A model-specific cooldown (noRelease) stays: a success on another model of the family proves nothing about it.
-   if (f) try { if (!store.cooldownInfo(f).noRelease) store.clearCooldown(f); } catch { /* Best effort. */ }
+   if (f && plan(ctx, ctx.model)) try { if (!store.cooldownInfo(f).noRelease) store.clearCooldown(f); } catch { /* Best effort. */ }
   }
  });
  pi.on("agent_before_settle", async (event: any, ctx: any) => {
@@ -346,7 +357,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   // follows a release on fresh windows within 15 minutes (those windows evidently did not see this limit).
   const noRelease = MODEL_LIMIT.test(err) || Date.now() - (released.get(f) ?? -Infinity) < RELEASE_TRUST_MS;
   try { store.clearDismiss(f); } catch { /* Best effort. */ }
-  store.limit(f, Date.now() + wait, { noRelease });
+  store.limit(f, Date.now() + wait, { noRelease, model: MODEL_LIMIT.test(err) ? modelRef(ctx.model) : undefined });
   warnState(ctx);
   if (reset) probeAt.delete(f); else probeAt.set(f, Date.now() + wait);
   try {

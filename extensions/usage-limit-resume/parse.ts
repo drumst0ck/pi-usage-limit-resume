@@ -204,10 +204,12 @@ export function headerWindows(headers: Record<string, string> | undefined, nowMs
 
 /** Reset (epoch ms) of the window that explains a limit: an exhausted one, else the most used at 90%+. */
 export function resetFromWindows(w: Windows | undefined, nowMs: number): number | undefined {
+	// Monthly windows are left out: they often gate one lane only (Z.ai MCP, Copilot premium). The shortest exhausted
+	// window explains the limit: once the 5h window resets the request may already go through.
 	let exhausted: number | undefined, hot: { used: number; t: number } | undefined;
-	for (const win of [w?.fiveHour, w?.weekly, w?.monthly]) {
+	for (const win of [w?.fiveHour, w?.weekly]) {
 		if (!win || win.resetsAt <= nowMs) continue;
-		if (win.usedPercent >= 100) { if (exhausted === undefined || win.resetsAt > exhausted) exhausted = win.resetsAt; }
+		if (win.usedPercent >= 100) { if (exhausted === undefined || win.resetsAt < exhausted) exhausted = win.resetsAt; }
 		else if (win.usedPercent >= 90 && (!hot || win.usedPercent > hot.used)) hot = { used: win.usedPercent, t: win.resetsAt };
 	}
 	return exhausted ?? hot?.t;
