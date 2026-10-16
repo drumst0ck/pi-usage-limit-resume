@@ -2,7 +2,7 @@ import type { Windows } from "./state.ts";
 // Pure helpers: detect provider usage-limit errors and compute the reset instant.
 
 const STRONG =
-	/hit your[\w\s]{0,20}limit|usage limit|rate_limit_error|exceed your account'?s rate limit|\b(session|weekly|opus|sonnet) limit|insufficient[_\s-]*quota|quota (exceeded|reached)|limit will reset|out of extra usage/i;
+	/hit your[\w\s]{0,20}limit|usage limit|rate_limit_error|exceed your account'?s rate limit|\b(session|weekly|daily|monthly|opus|sonnet|haiku|\d+[\s-]?hours?) limit|insufficient[_\s-]*quota|quota (exceeded|reached|will reset)|exceeded your current quota|resource_exhausted|limit will reset|out of extra usage/i;
 const WEAK = /rate.?limit|\b429\b/i;
 const TRANSIENT = /not your usage limit|temporarily limiting|overloaded|(?:^|\b(?:http|status|error|code)\W{0,3})5\d\d\b/i;
 const RESET_HINT = /resets?\b|try again at|regain access/i;
@@ -31,8 +31,9 @@ function zoneOffsetMs(zone: string | undefined, at: number): number {
 
 const UNIT_MS: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 };
 const REL_UNITS = "days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s";
-const REL = new RegExp(`(?:try again|retry|resets?|available again)\\s+in\\s+~?\\s*((?:\\d+(?:\\.\\d+)?\\s*(?:${REL_UNITS})\\b[\\s,]*(?:and\\s+)?)+)`, "i");
-const REL_TOKEN = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(${REL_UNITS})\\b`, "gi");
+// Units may follow the digits directly ("6m0s", "2h13m"), so the boundary is "no letter follows", not \b.
+const REL = new RegExp(`(?:try again|retry|resets?|available again|will reset)\\s+(?:in|after)\\s+~?\\s*((?:\\d+(?:\\.\\d+)?\\s*(?:${REL_UNITS})(?![a-z])[\\s,]*(?:and\\s+)?)+)`, "i");
+const REL_TOKEN = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(${REL_UNITS})(?![a-z])`, "gi");
 
 /** "in ~236 min", "in 2h 13m", "in 45 minutes" -> epoch ms. */
 function parseRelativeReset(msg: string, nowMs: number): number | undefined {
@@ -50,6 +51,8 @@ const ZONE_ABBR: Record<string, number> = {
 	AEST: 10, AEDT: 11, NZST: 12, NZDT: 13, HST: -10, AKST: -9, AKDT: -8, PST: -8, PDT: -7, MST: -7, MDT: -6,
 	CST: -6, CDT: -5, EST: -5, EDT: -4,
 };
+/** Shorthands without a DST suffix map to a zone, so daylight saving is handled. */
+const ZONE_ALIAS: Record<string, string> = { ET: "America/New_York", CT: "America/Chicago", MT: "America/Denver", PT: "America/Los_Angeles" };
 type Offset = (at: number) => number;
 
 /**
@@ -64,8 +67,9 @@ function zoneOffset(raw: string | undefined, strict: boolean): Offset | null {
 	const off = token.match(/^(?:UTC|GMT)\s*([+-])(\d{1,2})(?::?(\d{2}))?$/i);
 	if (off) return fixed((off[1] === "-" ? -1 : 1) * (+off[2] + (off[3] ? +off[3] / 60 : 0)));
 	if (ZONE_ABBR[token.toUpperCase()] !== undefined) return fixed(ZONE_ABBR[token.toUpperCase()]);
-	if (token.includes("/")) {
-		try { new Intl.DateTimeFormat("en-US", { timeZone: token }); return at => zoneOffsetMs(token, at); }
+	const iana = ZONE_ALIAS[token.toUpperCase()] ?? token;
+	if (iana.includes("/")) {
+		try { new Intl.DateTimeFormat("en-US", { timeZone: iana }); return at => zoneOffsetMs(iana, at); }
 		catch { return null; }
 	}
 	return strict ? null : local;
@@ -83,7 +87,7 @@ const ABSOLUTE = new RegExp(
 	String.raw`(?:([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+)?` +
 	String.raw`(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?:\s*([ap]\.?m\.?))?` +
 	String.raw`(?:\s*\(([^)]{1,40})\)|\s+((?:UTC|GMT)\s*[+-]\d{1,2}(?::?\d{2})?|[A-Z]{2,5})\b)?`,
-	"i",
+	"gi",
 );
 
 /** Returns the next reset instant (epoch ms) found in the message, or undefined. */
@@ -91,8 +95,15 @@ export function parseResetTime(msg: string, now: Date): number | undefined {
 	const nowMs = now.getTime();
 	const relative = parseRelativeReset(msg, nowMs);
 	if (relative !== undefined) return relative;
-	const m = msg.match(ABSOLUTE);
-	if (!m) return undefined;
+	// The first "resets …" that is a time wins: "resets 3 times a day. It resets 7pm" must not stop at the first.
+	for (const m of msg.matchAll(ABSOLUTE)) {
+		const t = absoluteInstant(m, nowMs);
+		if (t !== undefined) return t;
+	}
+	return undefined;
+}
+
+function absoluteInstant(m: RegExpMatchArray, nowMs: number): number | undefined {
 	const [, weekday, mon, day, hh, mm, ap, paren, bare] = m;
 	// 12-hour times need am/pm; 24-hour times need minutes ("19:00"), so "resets 3 times a day" is not a time.
 	let h = +hh;

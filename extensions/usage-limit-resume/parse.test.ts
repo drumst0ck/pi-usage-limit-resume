@@ -139,5 +139,27 @@ test('a bare word after the time is only a zone when written as an uppercase abb
  assert.equal(parseResetTime('resets 7pm west',NOW),local);
  assert.equal(parseResetTime('resets 7pm today',NOW),local);
  assert.equal(iso(parseResetTime('resets 7pm WEST',NOW)!),'2026-10-14T18:00:00.000Z');
- assert.equal(parseResetTime('resets 7pm ET',NOW),undefined);
+ assert.equal(parseResetTime('resets 7pm XQT',NOW),undefined);   // unknown uppercase abbreviation: no reset (ET/PT are known since S24)
+});
+
+test('compact and "after" durations are parsed (S23)',()=>{
+ const n=NOW.getTime();
+ assert.equal(parseResetTime('try again in 6m0s',NOW),n+6*60_000);
+ assert.equal(parseResetTime('resets in 2h13m',NOW),n+(2*3600+13*60)*1000);
+ assert.equal(parseResetTime('retry after 30 seconds',NOW),n+30_000);
+ assert.equal(parseResetTime('Your quota will reset after 3h31m59s.',NOW),n+(3*3600+31*60+59)*1000);
+ assert.equal(parseResetTime('resets in 1h 2m 3s',NOW),n+(3600+120+3)*1000);
+});
+test('Claude CLI "5-hour limit reached" and Gemini RESOURCE_EXHAUSTED are usage limits (S23)',()=>{
+ assert.equal(isUsageLimitError('5-hour limit reached ∙ resets 7pm (America/Los_Angeles)'),true);
+ assert.equal(isUsageLimitError('Weekly limit reached ∙ resets Oct 20 at 6pm'),true);
+ assert.equal(isUsageLimitError('429 RESOURCE_EXHAUSTED: You exceeded your current quota. Your quota will reset after 3h31m59s.'),true);
+});
+test('ET/PT/CT/MT follow US daylight saving; the first parseable "resets" wins (S24)',()=>{
+ // Oct 14 2026: US DST in effect (EDT = UTC-4, PDT = UTC-7)
+ assert.equal(iso(parseResetTime('resets 7pm ET',NOW)!),'2026-10-14T23:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 7pm (PT)',NOW)!),'2026-10-15T02:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 7pm CT',NOW)!),'2026-10-15T00:00:00.000Z');
+ assert.equal(iso(parseResetTime('resets 7pm MT',NOW)!),'2026-10-15T01:00:00.000Z');
+ assert.equal(iso(parseResetTime('Your limit resets 3 times a day. It resets 7pm (UTC)',NOW)!),'2026-10-14T19:00:00.000Z');
 });
