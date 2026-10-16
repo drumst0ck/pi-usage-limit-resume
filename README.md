@@ -47,7 +47,7 @@ Then restart Pi or run `/reload`. Check it is loaded with `pi list`. Remove it w
    When the time comes it tells the agent to carry on exactly where it stopped. It waits on the same model.
 3. **Holds your next message before wasting a request** if a saved 5-hour or weekly window is already at 100%. Monthly windows are shown but never hold a message: they often gate one lane only (Z.ai MCP, Copilot premium requests).
 4. **Releases a stale cooldown by itself.** Before holding a message, and every 3 minutes while waiting, it asks the provider for fresh windows; if none is exhausted (for example you upgraded your plan, or a window reset early) it clears the cooldown and continues. It does this at most once per limit: a model-specific limit ("Opus limit") or a limit hit again within 15 minutes of a release is kept until its reset. Any successful answer from that provider also clears its cooldown, in every Pi process.
-5. **Survives closing Pi.** If you close Pi while it waits, reopening that session tells you when it will continue and sends the resume prompt at the reset. Typing anything first, `/limit-resume cancel` or `now` replaces it.
+5. **Survives closing Pi.** If you close Pi while it waits, reopening that session tells you when it will continue and sends the resume prompt at the reset. Typing anything first, `/limit-resume cancel` or `now` replaces it; a cancel from another Pi also drops it. If the reset passed more than an hour ago it only tells you, and `/limit-resume now` continues the task.
 
 Details:
 
@@ -56,7 +56,7 @@ Details:
 - After 12 limits in a row without a successful response it stops waiting and tells you.
 - Only subscription plans are tracked: OAuth logins, and the API-key plans marked `apiKey: true`. A pay-as-you-go API key
   has no reset to wait for.
-- The status bar shows `⏳ resume HH:MM` while it waits.
+- The status bar shows `⏳ <provider> limit · resumes <time> · /limit-resume cancel` while it waits.
 
 ## Commands
 
@@ -165,7 +165,7 @@ to wait for. It does not impersonate other clients: requests carry an honest `Us
 ## State files and troubleshooting
 
 Everything lives in the state directory as small JSON files: cooldowns, saved windows (`windows-<family>.json`) and
-`last-limit.json`, the last limit event, and `limit-history.jsonl`, the recent events (one JSON per line, all providers; appended; past 100 lines it is moved to `limit-history.1.jsonl`), and `dismissed-<family>.json` after cancel/now. Its `source` field tells which step produced the reset time: `headers`,
+`last-limit.json`, the last limit event, and `limit-history.jsonl`, the recent events (one JSON per line, all providers; appended; past 100 lines it is moved to `limit-history.1.jsonl`), and `dismissed-<family>.json` after cancel/now, and `resume-<sessionId>.json` while a wait is pending for a session (removed when it resumes, is cancelled, or a week after its reset). Its `source` field tells which step produced the reset time: `headers`,
 `message`, `headers-cache`, `usage-endpoint`, `claude-cli`, `native` or `probe`.
 
 | Symptom | Check |

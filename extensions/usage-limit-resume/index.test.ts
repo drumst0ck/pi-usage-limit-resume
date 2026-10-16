@@ -767,3 +767,22 @@ test('a dismissal from another process stops the other waiters without a resume 
  h.advance(60_000); await settle();
  assert.equal(await p, undefined); assert.equal(h.sent.length, 0);
 });
+test('a pending resume survives an abort followed by session_shutdown, as /new and /resume do (S26)', async t => {
+ const h = harness(t); h.ctx.sessionManager = { getSessionId: () => 'sess-1' };
+ await h.headers(3600); const p = h.error(); await settle();
+ h.controller.abort(); await p; await h.handlers.session_shutdown({ reason: 'new' }, h.ctx);
+ assert.ok(h.store.pendingResume('sess-1'));
+});
+test('reopening long after the reset only notifies; it never starts a run by itself (S26)', async t => {
+ const h = await closedWhileWaiting(t, 60); h.advance(3 * 3600_000);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx); await settle();
+ assert.equal(c.sent.length, 0); assert.match(c.notes.join('\n'), /limit-resume now/);
+ assert.equal(h.store.pendingResume('sess-1'), undefined);
+});
+test('a scheduled resume honours a dismissal made in another process (S26)', async t => {
+ const h = await closedWhileWaiting(t);
+ const c = reopen(h); await c.handlers.session_start({ reason: 'resume' }, c.ctx);
+ const other = h.child(); await other.commands['limit-resume'].handler('cancel', other.ctx);
+ h.advance(3600_000 + 91_000); await settle();
+ assert.equal(c.sent.length, 0);
+});

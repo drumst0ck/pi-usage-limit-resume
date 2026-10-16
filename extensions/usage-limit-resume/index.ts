@@ -28,6 +28,7 @@ const MAX_CONSECUTIVE = 12;
 const MARGIN_MS = 90_000;
 const DISMISS_TOLERANCE_MS = 5 * 60_000;
 const RELEASE_TRUST_MS = 15 * 60_000;
+const RESUME_STALE_MS = 60 * 60_000;
 const MODEL_LIMIT = /\b(opus|sonnet|haiku)\b[\w\s]{0,20}limit/i;
 const PROBE_MS = [10, 20, 30, 60].map(m => m * 60_000);
 const RESUME_PROMPT = "Provider capacity is available. Continue exactly where you stopped. " +
@@ -266,12 +267,21 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   resumeSession = sid;
   const fire = () => {
    if (resumeSession !== sid) return;
+   // Cancelled or retried from another process meanwhile: that decision wins.
+   if (store.dismissedUntil(pending.family) >= pending.at) { dropResume(); return; }
    const at = Math.max(pending.at, store.cooldown(pending.family));
    if (Date.now() < at) { resumeTimer = setTimeout(fire, Math.max(1, Math.min(at - Date.now(), TICK_MS))); return; }
    dropResume();
    try { pi.sendUserMessage(RESUME_PROMPT, ctx.isIdle?.() === false ? { deliverAs: "followUp" } : undefined); } catch { /* Session gone. */ }
   };
   const at = Math.max(pending.at, store.cooldown(pending.family));
+  if (store.dismissedUntil(pending.family) >= pending.at) { dropResume(); return; }
+  // Long past: the task may no longer be wanted; never start a run by itself.
+  if (at <= Date.now() - RESUME_STALE_MS) {
+   dropResume();
+   ctx.ui?.notify?.(`${pending.family} usage limit was being waited on when Pi closed; it reset ${when(at)}. /limit-resume now continues that task.`, "info");
+   return;
+  }
   if (at <= Date.now()) { fire(); return; }
   ctx.ui?.notify?.(`${pending.family} usage limit was being waited on when Pi closed. Pi continues this task automatically at ${when(at)}; type anything to skip it, /limit-resume cancel to drop it.`, "info");
   resumeTimer = setTimeout(fire, Math.min(at - Date.now(), TICK_MS));
@@ -381,7 +391,8 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   if (sid) try { store.setPendingResume(sid, { family: f, at: store.cooldown(f) }); } catch { /* Best effort. */ }
   // Keep the boundary open during the wait: Gentle must NOT receive agent_settled yet.
   const resumed = await waitForReset(ctx, f);
-  if (sid && !shuttingDown) try { store.clearPendingResume(sid); } catch { /* Best effort. */ }
+  // An abort is also how /new, /resume and quit end the wait (the shutdown comes after): keep the record then.
+  if (sid && !shuttingDown && !ctx.signal?.aborted) try { store.clearPendingResume(sid); } catch { /* Best effort. */ }
   if (resumed) {
    pendingError = undefined;
    return { continue: true, entries: [{ type: "custom_message", customType: "usage-limit-resume", content: RESUME_PROMPT, display: false }] };
