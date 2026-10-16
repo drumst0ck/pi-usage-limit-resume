@@ -718,3 +718,19 @@ test('a read-only state dir: what was written in memory wins over stale files, a
  const fresh = mkdtempSync(join(tmpdir(), 'pi-quota-ok-')); t.after(() => rmSync(fresh, { recursive: true, force: true }));
  const ok = new SharedState(fresh); ok.record({ n: 1 }); assert.equal(ok.failed, undefined);
 });
+
+// ---------------------------------------------------------------- round 2 (S17-S28)
+test('chat notices never trigger a turn: they are sent with triggerTurn:false and shown as a notification (S18)', async t => {
+ const h = harness(t); await h.headers(3600); const p = h.error(); await settle();
+ assert.equal(h.messages.length, 1); assert.equal(h.messages[0][1]?.triggerTurn, false);
+ assert.match(h.notes.join('\n'), /claude usage limit reached/); h.controller.abort(); await p;
+});
+test('now during the preflight provider check forces the retry without a second resume prompt (S27)', async t => {
+ let finish: any; const h = harness(t, { nativeSources: { claude: () => new Promise(r => finish = r) } });
+ h.store.limit('claude', Date.now() + 3600_000);
+ const p = h.handlers.before_agent_start({}, h.ctx); await settle();
+ await h.commands['limit-resume'].handler('now', h.ctx);
+ finish(undefined); await p;
+ assert.equal(h.sent.length, 0); assert.equal(h.abortCalls, 0); assert.equal(h.store.cooldown('claude'), 0); assert.equal(h.pending(), 0);
+ await h.headers(3600); const q = h.error(); await settle(); assert.equal(h.pending(), 1); h.controller.abort(); await q;
+});

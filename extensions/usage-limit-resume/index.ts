@@ -128,13 +128,16 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
    timer = setTimeout(tick, Math.min(ms, TICK_MS));
   });
  };
- const announce = (f: Family, at: number) => {
+ const announce = (ctx: any, f: Family, at: number) => {
   const time = when(at);
   const head = Math.abs((probeAt.get(f) ?? -Infinity) - at) < 1000 ? `${f} usage limit reached; next retry at ${time} (reset time unknown).` : `${f} usage limit reached. It resets at ${time}.`;
   try {
+   // triggerTurn:false: while a run is active Pi would otherwise queue this as a steering message, and a queued
+   // message makes the boundary continue on the limited provider even when the wait ends without a resume.
    pi.sendMessage?.({ customType: "usage-limit-resume", display: true,
-    content: `⏳ ${head} Pi continues this task automatically then. /limit-resume now retries, /limit-resume cancel stops waiting.` });
+    content: `⏳ ${head} Pi continues this task automatically then. /limit-resume now retries, /limit-resume cancel stops waiting.` }, { triggerTurn: false });
   } catch { /* A missing chat notice must not break the wait. */ }
+  ctx?.ui?.notify?.(`${head} /limit-resume cancel stops waiting (Esc cannot).`, "info");
  };
  const announced = new Set<number>();
  // The provider's fresh windows beat a saved cooldown: with no exhausted window the plan has capacity again.
@@ -159,14 +162,22 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
   const epoch = generation;
   waitingFamily = f;
   try {
+   // "now" during the preflight provider check (no timer yet) still means "retry at once".
+   forceRetry = false;
   let first = preflight;
   if (preflight) announced.clear();   // every held message is announced
   while (epoch === generation && !ctx.signal?.aborted) {
    const at = store.cooldown(f);
    if (at <= Date.now()) return true;
    // A saved cooldown can be stale (plan upgraded, window reset early): ask the provider before holding the message.
-   if (first) { first = false; if (await releaseIfHealthy(ctx, f, epoch)) return true; continue; }
-   if (!announced.has(at)) { announced.clear(); announced.add(at); announce(f, at); }
+   if (first) {
+    first = false;
+    const healthy = await releaseIfHealthy(ctx, f, epoch);
+    if (forceRetry) { forceRetry = false; return true; }
+    if (healthy) return true;
+    continue;
+   }
+   if (!announced.has(at)) { announced.clear(); announced.add(at); announce(ctx, f, at); }
    if (!await waitUntil(ctx, at, f, () => releaseIfHealthy(ctx, f, epoch), () => store.cooldown(f) < at - 1000)) return false;
    if (forceRetry) { forceRetry = false; return true; }
    // Another process may have extended the account cooldown. Re-read before resuming.
@@ -394,6 +405,7 @@ export default function (pi: ExtensionAPI, options: Options = {}) {
     if (f) dismiss(f);
     dropResume();
     if (wake) { forceRetry = true; wake(true); return; }
+    if (waitingFamily) { forceRetry = true; return; }   // preflight check in flight: the held message goes through
     pi.sendUserMessage(RESUME_PROMPT, ctx.isIdle?.() === false ? { deliverAs: "followUp" } : undefined);
    } else {
     const at = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });

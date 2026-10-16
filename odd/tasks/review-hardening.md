@@ -20,6 +20,18 @@ Read until `## Log`.
 - S14 An unwritable state dir never breaks a message or a wait: cooldowns fall back to memory and the user is told once.
 - S15 Giving up after too many consecutive limits says what happens next (cooldown kept until <time>, cancel clears it).
 - S16 History rotation loses no concurrent event: past 100 lines the file is renamed to limit-history.1.jsonl.
+- S17 Esc cannot end a hold in Pi 1.2.0 (no ctx.signal in boundaries; isIdle stays false; abort flags are private): documented in README; the status line and notices name /limit-resume cancel (JD-B-001).
+- S18 Chat notices never trigger a turn: sendMessage with triggerTurn:false (JD-A-001).
+- S19 Monthly windows never set a wait nor veto a release; the shortest exhausted window explains a limit (JD-A-002).
+- S20 A model-specific (noRelease) cooldown records the model; a message on another model of the family is not held by it (JD-B-003).
+- S21 The release check during a wait respects the shared window refresh throttle (15 min claude, 5 min others) (JD-B-004).
+- S22 A success clears the cooldown only when the model is on a plan (JD-A-005).
+- S23 Compact durations ("6m0s", "2h13m", "after 30 seconds", "reset after 3h31m59s") and "5-hour limit reached" are detected (JD-A-004, JD-B-002).
+- S24 ET/PT/CT/MT map to IANA zones; the first parseable "resets …" wins when an earlier one is not a time (JD-B-008, JD-A-010).
+- S25 A dismissal from another process stops the other waiters (no resume prompt); a release or success resumes them (JD-B-006).
+- S26 A pending resume survives an abort followed by session_shutdown (/new, /resume) (JD-A-007); when the reset is long past (> 1h) it only notifies and does not auto-send (JD-B-005); it honours a dismissal (JD-A-008).
+- S27 `now` during a preflight hold forces the retry without a second resume prompt (JD-B-009).
+- S28 README: status line text, resume-<sessionId>.json, Esc note (JD-B-010, JD-A-011).
 
 ## Tasks
 - T1 S1,S2 inline [x]
@@ -30,6 +42,10 @@ Read until `## Log`.
 - T5 S11 inline [x] b2dd573
 - T6 S12 inline [x] 6695bb5
 - T7 S13-S16 inline [x] 033f291
+- T8 S17,S18,S27 inline
+- T9 S19,S20,S21,S22,S25 inline
+- T10 S23,S24 inline
+- T11 S26,S28 inline
 
 ## Log
 - L1 "usa opues 5.5 como orquestador para revisar todo esto buscar posibles errores y bugs y mejorar el producto"
@@ -38,3 +54,4 @@ Read until `## Log`.
 - L4 Verify: S1-S10 met (288/288); fixed W1 (success keeps noRelease cooldown), W3 (probe label by own instant), README nit. 289/289. Commit b0603b5.
 - L5 "sigue con lo pendiente": open items from L2/L4 become S11-S16.
 - L6 RED observed per task; verify: S11,S13,S15 met; S12/S14/S16 partial -> fixed W1 (lowercase word not a zone, unknown uppercase bare zone -> no reset), W2 (memory wins over stale files, failed deletes hidden), W3 (rotation ENOENT not a failure) in 1c568cf. 303/303 + typecheck. Not done: two-process rotation test, W4 shuttingDown single flag (not reproduced).
+- L7 "busca posibles bugs y fallos": judges round 2 on da98990, 22 rows; Pi 1.2.0 source confirmed: no ctx.signal in boundaries (agent.signal = activeRun?.signal), sendMessage steers while streaming and hasQueuedMessages forces continue, teardownCurrent aborts before session_shutdown. Declined: JD-A-006 (ctx.mode; argv kept, documented), JD-A-003 (gemini per-model buckets: follow-up), JD-B-011 (rotation race: diagnostic only).

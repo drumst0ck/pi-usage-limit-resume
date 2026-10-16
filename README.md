@@ -64,7 +64,7 @@ Details:
 |---|---|
 | `/limit-resume status` | Shows whether it is waiting, every active cooldown, and the saved 5h, weekly and monthly usage and reset time of each provider. |
 | `/limit-resume now` | Stops waiting, drops the saved cooldown and retries immediately. When nothing is being waited on, it sends the resume prompt. |
-| `/limit-resume cancel` | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. The dismissal is shared by every Pi process and survives restarts; a new limit error waits again. |
+| `/limit-resume cancel` (Esc does not end a hold: Pi gives extensions no abort signal at these points) | Stops waiting, aborts the held turn and drops the saved cooldown, so your next message is sent normally. The dismissal is shared by every Pi process and survives restarts; a new limit error waits again. |
 
 ## How the reset time is found
 
