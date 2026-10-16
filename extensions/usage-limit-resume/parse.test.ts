@@ -163,3 +163,9 @@ test('ET/PT/CT/MT follow US daylight saving; the first parseable "resets" wins (
  assert.equal(iso(parseResetTime('resets 7pm MT',NOW)!),'2026-10-15T01:00:00.000Z');
  assert.equal(iso(parseResetTime('Your limit resets 3 times a day. It resets 7pm (UTC)',NOW)!),'2026-10-14T19:00:00.000Z');
 });
+test('per-request token limits are not usage limits (S23 false positives)',()=>{
+ assert.equal(isUsageLimitError('Request exceeds the daily limit of 8192 output tokens'),false);
+ assert.equal(isUsageLimitError('monthly limit on tokens per request exceeded'),false);
+ assert.equal(isUsageLimitError('Daily limit reached. Resets at 12:00am (UTC)'),true);
+ assert.equal(isUsageLimitError('You hit your monthly limit'),true);
+});

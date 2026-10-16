@@ -2,7 +2,7 @@ import type { Windows } from "./state.ts";
 // Pure helpers: detect provider usage-limit errors and compute the reset instant.
 
 const STRONG =
-	/hit your[\w\s]{0,20}limit|usage limit|rate_limit_error|exceed your account'?s rate limit|\b(session|weekly|daily|monthly|opus|sonnet|haiku|\d+[\s-]?hours?) limit|insufficient[_\s-]*quota|quota (exceeded|reached|will reset)|exceeded your current quota|resource_exhausted|limit will reset|out of extra usage/i;
+	/hit your[\w\s]{0,20}limit|usage limit|rate_limit_error|exceed your account'?s rate limit|\b(session|weekly|opus|sonnet|haiku|\d+[\s-]?hours?) limit|(?:hit your|reached your|exceeded your) (?:daily|monthly) limit|\b(?:daily|monthly) limit (?:reached|exceeded|hit)\b|insufficient[_\s-]*quota|quota (exceeded|reached|will reset)|exceeded your current quota|resource_exhausted|limit will reset|out of extra usage/i;
 const WEAK = /rate.?limit|\b429\b/i;
 const TRANSIENT = /not your usage limit|temporarily limiting|overloaded|(?:^|\b(?:http|status|error|code)\W{0,3})5\d\d\b/i;
 const RESET_HINT = /resets?\b|try again at|regain access/i;
